@@ -1,0 +1,195 @@
+---
+title: "counts_2"
+output: html_document
+date: "2025-07-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Loading data
+
+#### locusta
+
+```{r}
+counts<-read.table(file="/home/cluster_user/Magisterka/locusta_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("locusta_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+metadata <- read.csv(file="/home/cluster_user/Magisterka/locusta_metadata.csv", row.names = 1, header = TRUE, sep = ";") 
+head(metadata)
+dim(metadata)
+
+locusta_metadata <- metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(locusta_metadata))
+locusta_metadata$Species <- "locusta"
+
+locusta_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(locusta_counts) #182 173 -> 124 642
+
+
+saveRDS(locusta_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/locusta_counts.rds")
+saveRDS(locusta_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/locusta_metadata.rds")
+```
+
+#### harmonia
+
+```{r}
+counts<-read.table(file="/home/cluster_user/Magisterka/harmonia_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("harmonia_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+metadata <- read.csv(file="/home/cluster_user/Magisterka/harmonia_metadata.csv", row.names = 1, header = TRUE, sep = ";") 
+head(metadata)
+dim(metadata)
+
+harmonia_metadata <- metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(harmonia_metadata))
+harmonia_metadata$Species <- "harmonia"
+
+harmonia_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(harmonia_counts)
+#25 685 -> 17 497
+
+
+saveRDS(harmonia_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/harmonia_counts.rds")
+saveRDS(harmonia_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/harmonia_metadata.rds")
+```
+
+#### plutella
+
+```{r}
+counts<-read.table(file="/home/cluster_user/Magisterka/plutella_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("plutella_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+metadata <- read.csv(file="/home/cluster_user/Magisterka/plutella_metadata.csv", row.names = 1, header = TRUE, sep = ";") 
+head(metadata)
+dim(metadata)
+
+plutella_metadata <- metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(plutella_metadata))
+plutella_metadata$Species <- "plutella"
+
+plutella_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(plutella_counts)
+#29185 -> 28752
+
+saveRDS(plutella_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/plutella_counts.rds")
+saveRDS(plutella_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/plutella_metadata.rds")
+```
+
+#### drosophila
+
+```{r}
+
+counts<-read.table(file="/home/cluster_user/Magisterka/drosophila_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("drosophila_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+metadata <- read.csv(file="/home/cluster_user/Magisterka/drosophila_metadata.csv", row.names = 1, header = TRUE, sep = ";") 
+head(metadata)
+dim(metadata)
+
+drosophila_metadata <- metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(drosophila_metadata))
+drosophila_metadata$Species <- "drosophila"
+
+drosophila_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(drosophila_counts)
+# 13955 -> 13955
+
+saveRDS(drosophila_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/drosophila_counts.rds")
+saveRDS(drosophila_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/drosophila_metadata.rds")
+```
+
+#### blattella
+
+```{r}
+counts<-read.table(file="/home/cluster_user/Magisterka/blattella_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("blattella_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+blattella_metadata <- read.csv(file="/home/cluster_user/Magisterka/blattella_metadata.csv", row.names = 1, header = TRUE, sep = ";") 
+head(blattella_metadata)
+dim(blattella_metadata)
+
+blattella_metadata <- blattella_metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(blattella_metadata))
+blattella_metadata$Species <- "blattella"
+
+blattella_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(blattella_counts)
+# 28106 -> 22523
+
+saveRDS(blattella_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/blattella_counts.rds")
+saveRDS(blattella_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/blattella_metadata.rds")
+```
+
+#### drosophila2
+
+```{r}
+counts<-read.table(file="/home/cluster_user/Magisterka/2drosophila_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("X2drosophila_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+metadata <- read.csv(file="/home/cluster_user/Magisterka/2drosophila_metadata.csv", row.names = 1, header = TRUE, sep = ";") 
+head(metadata)
+dim(metadata)
+
+drosophila2_metadata <- metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(drosophila2_metadata))
+drosophila2_metadata$Species <- "drosophila2"
+
+drosophila2_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(drosophila2_counts)
+#13955 -> 13899
+
+saveRDS(drosophila2_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_counts.rds")
+saveRDS(drosophila2_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_metadata.rds")
+```
+
+#### triatoma
+
+```{r}
+counts<-read.table(file="/home/cluster_user/Magisterka/triatoma_counts.txt", row.names = 1, sep="\t", header = TRUE)
+counts <- counts[, 6:ncol(counts)] #deleting the first few columns
+colnames(counts) <- gsub("\\.bam", "", colnames(counts))  #editing IDs
+colnames(counts) <- gsub("triatoma_mapped\\.", "", colnames(counts))
+head(counts)
+dim(counts)
+
+triatoma_metadata <- read.csv(file="/home/cluster_user/Magisterka/triatoma_metadata.csv", row.names = 1, header = TRUE, sep = ",") 
+head(triatoma_metadata)
+dim(triatoma_metadata)
+
+triatoma_metadata <- triatoma_metadata[colnames(counts), , drop=FALSE]
+all(colnames(counts) %in% rownames(triatoma_metadata))
+triatoma_metadata$Species <- "triatoma"
+
+triatoma_counts<-counts[rowSums(counts)!=0,] #deleting zeroes
+dim(triatoma_counts)
+# 28106 -> 22523
+
+saveRDS(triatoma_counts, file = "/home/cluster_user/link_to_datadisk/copy/counts/triatoma_counts.rds")
+saveRDS(triatoma_metadata, file = "/home/cluster_user/link_to_datadisk/copy/counts/triatoma_metadata.rds")
+```

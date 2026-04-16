@@ -1,0 +1,3865 @@
+---
+title: "8. go + kegg analysis"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc_float: true
+    toc-depth: 6
+editor: visual
+---
+
+# egg-NOG-mapper
+
+2.1.12
+
+```{bash}
+#| eval: false
+#| include: true
+# gffread -g Locusta_migratoria_v2.genome.fa -y locusta_proteins.fa Locusta_migratoria_v2_fixed.gff3
+# 
+# gffread -g Harmonia_axyridis.genome.fa -y harmonia_proteins.fa Harmonia_axyridis.gff3
+# 
+# gffread -g Plutella_xylostella.genome.fa -y plutella_proteins.fa Plutella_xylostella.gff3
+# 
+# gffread -g Drosophila_melanogaster.genome.fa -y drosophila_proteins.fa Drosophila_melanogaster.gff3
+# 
+# gffread -g Blattella_germanica.genome.fa -y blattella_proteins.fa Blattella_germanica.gff3
+```
+
+| **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
+|----|----|----|----|----|----|----|----|----|----|----|
+| drosophila_proteins.fa | 13955 (proteins) | 7321147 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
+
+| **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
+|----|----|----|----|----|----|----|----|----|----|----|
+| harmonia_proteins.fa | 25685 (proteins) | 9811406 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
+
+| **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
+|----|----|----|----|----|----|----|----|----|----|----|
+| plutella_proteins.fa | 29185 (proteins) | 9739172 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
+
+| **Date created** | **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
+|----|----|----|----|----|----|----|----|----|----|----|----|
+| 09/24/25 | blattella_proteins.fa.gz | 28106 (proteins) | 9442452 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
+
+# libraries
+
+```{r}
+library(clusterProfiler)
+library(enrichplot)
+library(tidyr)
+library(DESeq2)
+library(ggplot2)
+library(ggrepel)
+library(pheatmap)
+library(uwot)
+library(readxl)
+library(grid)
+library(tibble)
+library(GSVA)
+library(princurve)
+library(GO.db)
+library(dplyr)
+library(stringr)
+library(pheatmap)
+library(tidytext)
+library(topGO)
+library(Rgraphviz)
+library(UpSetR)
+library(forcats)
+
+
+conflicted::conflict_prefer("select", "dplyr")
+conflicted::conflict_prefer("filter", "dplyr")
+conflicted::conflict_prefer("count", "dplyr")
+conflicted::conflict_prefer("unname", "base")
+conflicted::conflict_prefer("intersect", "base")
+conflicted::conflict_prefer("union", "base")
+conflicted::conflict_prefer("setdiff", "base")
+conflicted::conflict_prefer("slice", "clusterProfiler")
+
+```
+
+# set-up
+
+```{r}
+dds <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/dds.rds")
+gene2og <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/gene2og.rds")
+
+background_ogs <- rownames(dds)
+length(background_ogs)
+head(background_ogs)
+length(rownames(gene2og))/5
+
+#without renaming to anything there are errors
+gene2og <- gene2og %>%
+  dplyr::rename(
+    gene_id = "Gene",
+    og = "orthogroup"
+  )
+```
+
+```{r}
+stages <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+
+all_sig_ogs <- list()
+
+for(i in 1:(length(stages)-1)){
+  for(j in (i+1):length(stages)){
+    stage1 <- stages[i]
+    stage2 <- stages[j]
+    
+    res <- results(dds, contrast = c("Stage2", stage2, stage1)) 
+    
+    sig_ogs <- rownames(res[which(res$padj < 0.05 & abs(res$log2FoldChange) > 1), ])
+    
+    contrast_name <- paste(stage2, "_vs_", stage1, sep="")
+    all_sig_ogs[[contrast_name]] <- sig_ogs
+  }
+}
+
+names(all_sig_ogs)
+#lapply(all_sig_ogs, length)
+```
+
+# GO & KEGG
+
+## Drosophila
+
+```{r}
+eggnog_drosophila <- read.table("/home/cluster_user/Magisterka/drosophila.emapper.annotations.tsv",
+                                sep = "\t",
+                                header = FALSE,
+                                comment.char = "#",
+                                quote = "",
+                                stringsAsFactors = FALSE)
+
+colnames(eggnog_drosophila) <- c("query", "seed_ortholog", "evalue", "score", "eggNOG_OGs", 
+                                 "max_annot_lvl", "COG_category", "Description", "Preferred_name",
+                                 "GOs", "EC", "KEGG_ko", "KEGG_Pathway", "KEGG_Module",
+                                 "KEGG_Reaction", "KEGG_rclass", "BRITE", "KEGG_TC",
+                                 "CAZy", "BiGG_Reaction", "PFAMs")
+
+#delete .1 from the end of names
+eggnog_drosophila$query <- sub("\\.\\d+$", "", eggnog_drosophila$query)
+
+head(eggnog_drosophila)
+
+go_drosophila <- eggnog_drosophila %>%
+  select(term = GOs, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(go_drosophila)
+
+kegg_drosophila <- eggnog_drosophila %>%
+  select(term = KEGG_Pathway, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(kegg_drosophila)
+```
+
+## Harmonia
+
+```{r}
+eggnog_harmonia <- read.table("/home/cluster_user/Magisterka/harmonia.emapper.annotations.tsv",
+                                sep = "\t",
+                                header = FALSE,
+                                comment.char = "#",
+                                quote = "",
+                                stringsAsFactors = FALSE)
+
+colnames(eggnog_harmonia) <- c("query", "seed_ortholog", "evalue", "score", "eggNOG_OGs", 
+                                 "max_annot_lvl", "COG_category", "Description", "Preferred_name",
+                                 "GOs", "EC", "KEGG_ko", "KEGG_Pathway", "KEGG_Module",
+                                 "KEGG_Reaction", "KEGG_rclass", "BRITE", "KEGG_TC",
+                                 "CAZy", "BiGG_Reaction", "PFAMs")
+
+#delete .1 from the end of names
+eggnog_harmonia$query <- sub("\\.\\d+$", "", eggnog_harmonia$query)
+
+head(eggnog_harmonia)
+
+go_harmonia <- eggnog_harmonia %>%
+  select(term = GOs, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(go_harmonia)
+
+kegg_harmonia <- eggnog_harmonia %>%
+  select(term = KEGG_Pathway, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(kegg_harmonia)
+```
+
+## Locusta
+
+```{r}
+#| eval: false
+#| include: true
+# head -n 4 /home/cluster_user/Magisterka/locusta1.emapper.annotations.tsv > /home/cluster_user/Magisterka/locusta.emapper.annotations.tsv  
+# tail -n +5 /home/cluster_user/Magisterka/locusta1.emapper.annotations.tsv >> /home/cluster_user/Magisterka/locusta.emapper.annotations.tsv
+# tail -n +5 /home/cluster_user/Magisterka/locusta2.emapper.annotations.tsv >> /home/cluster_user/Magisterka/locusta.emapper.annotations.tsv
+# tail -n +5 /home/cluster_user/Magisterka/locusta3.emapper.annotations.tsv >> /home/cluster_user/Magisterka/locusta.emapper.annotations.tsv
+# tail -n +5 /home/cluster_user/Magisterka/locusta4.emapper.annotations.tsv >> /home/cluster_user/Magisterka/locusta.emapper.annotations.tsv
+# tail -n +5 /home/cluster_user/Magisterka/locusta5.emapper.annotations.tsv >> /home/cluster_user/Magisterka/locusta.emapper.annotations.tsv
+```
+
+```{r}
+eggnog_locusta <- read.table("/home/cluster_user/Magisterka/locusta.emapper.annotations.tsv",
+                                sep = "\t",
+                                header = FALSE,
+                                comment.char = "#",
+                                quote = "",
+                                stringsAsFactors = FALSE)
+
+colnames(eggnog_locusta) <- c("query", "seed_ortholog", "evalue", "score", "eggNOG_OGs", 
+                                 "max_annot_lvl", "COG_category", "Description", "Preferred_name",
+                                 "GOs", "EC", "KEGG_ko", "KEGG_Pathway", "KEGG_Module",
+                                 "KEGG_Reaction", "KEGG_rclass", "BRITE", "KEGG_TC",
+                                 "CAZy", "BiGG_Reaction", "PFAMs")
+
+#delete .t1 .t2 from the end of names
+eggnog_locusta$query <- sub("\\.t\\d+$", "", eggnog_locusta$query)
+
+head(eggnog_locusta)
+
+go_locusta <- eggnog_locusta %>%
+  select(term = GOs, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(go_locusta)
+
+kegg_locusta <- eggnog_locusta %>%
+  select(term = KEGG_Pathway, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(kegg_locusta)
+```
+
+## Plutella
+
+```{r}
+eggnog_plutella <- read.table("/home/cluster_user/Magisterka/plutella.emapper.annotations.tsv",
+                                sep = "\t",
+                                header = FALSE,
+                                comment.char = "#",
+                                quote = "",
+                                stringsAsFactors = FALSE)
+
+colnames(eggnog_plutella) <- c("query", "seed_ortholog", "evalue", "score", "eggNOG_OGs", 
+                                 "max_annot_lvl", "COG_category", "Description", "Preferred_name",
+                                 "GOs", "EC", "KEGG_ko", "KEGG_Pathway", "KEGG_Module",
+                                 "KEGG_Reaction", "KEGG_rclass", "BRITE", "KEGG_TC",
+                                 "CAZy", "BiGG_Reaction", "PFAMs")
+
+#delete .1 from the end of names
+eggnog_plutella$query <- sub("\\.\\d+$", "", eggnog_plutella$query)
+
+head(eggnog_plutella)
+
+go_plutella <- eggnog_plutella %>%
+  select(term = GOs, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(go_plutella)
+
+kegg_plutella <- eggnog_plutella %>%
+  select(term = KEGG_Pathway, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(kegg_plutella)
+```
+
+## Blattella
+
+```{r}
+eggnog_blattella <- read_excel("/home/cluster_user/Magisterka/blattella.emapper.annotations.xlsx", skip =2)
+
+
+colnames(eggnog_blattella) <- c("query", "seed_ortholog", "evalue", "score", "eggNOG_OGs", 
+                                 "max_annot_lvl", "COG_category", "Description", "Preferred_name",
+                                 "GOs", "EC", "KEGG_ko", "KEGG_Pathway", "KEGG_Module",
+                                 "KEGG_Reaction", "KEGG_rclass", "BRITE", "KEGG_TC",
+                                 "CAZy", "BiGG_Reaction", "PFAMs")
+
+#delete .1 from the end of names
+eggnog_blattella$query <- sub("\\.\\d+$", "", eggnog_blattella$query)
+
+head(eggnog_blattella)
+
+go_blattella <- eggnog_blattella %>%
+  select(term = GOs, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(go_blattella)
+
+kegg_blattella <- eggnog_blattella %>%
+  select(term = KEGG_Pathway, gene = query) %>%
+  filter(!is.na(term) & term != "-") %>%
+  separate_rows(term, sep = ",") %>%
+  left_join(gene2og, by = c("gene" = "gene_id")) %>%
+  filter(!is.na(og)) %>%
+  select(term, gene = og) %>%
+  distinct()
+
+head(kegg_blattella)
+```
+
+## t2g
+
+```{r}
+###enricher wont work because it needs many GOs with multiple orthogroups (dont have, 821 orthogroups is too little)
+
+# to check: GOslim (from 15k to ...) -> can i get it?
+#KEGG pathways (from 700 to over 3k)
+
+#term to gene for all species
+t2g_go_common <- bind_rows(go_drosophila, go_locusta, go_harmonia, go_plutella, go_blattella) %>%
+   distinct()
+# 
+ t2g_kegg_common <- bind_rows(kegg_drosophila, kegg_locusta, kegg_harmonia, kegg_plutella, kegg_blattella) %>%
+   distinct()
+
+```
+
+### gsea
+
+```{r}
+#| eval: false
+#| include: false
+vst <- varianceStabilizingTransformation(dds, blind = FALSE)
+mat <- assay(vst)
+
+#prepare gene sets
+go_sets <- split(t2g_go_common$gene, t2g_go_common$term)
+kegg_sets <- split(t2g_kegg_common$gene, t2g_kegg_common$term)
+
+length(go_sets)
+length(kegg_sets)
+sapply(go_sets, length) %>% summary()
+sapply(kegg_sets, length) %>% summary()
+
+#check matrixStats version
+packageVersion("matrixStats")
+options(matrixStats.useNames = FALSE)
+
+#GSVA (Gene Set Variation Analysis) using the ssGSEA method
+#based on the vst matrix and orthogroup to term table it counts the activity of genes for each sample separately
+#result is GO x samples matrix where the value is the enrichment score based on the ranking
+gsva_go <- gsva(
+  mat,
+  go_sets,
+  method = "ssgsea", #single-sample GSEA (gene expression -> rankings-> enrichment scores) -> separate for each sample
+  #enrichment scores are normalized between samples by: background value, numbers of genes, enrichment ranges, centering around 0
+  #-> so the result is relative to other samples as not an absolute value but a more/less <- from comparing the rankings
+  min.sz = 3,
+  max.sz = 2000,
+  verbose = TRUE
+)
+
+gsva_kegg <- gsva(
+  mat,
+  kegg_sets,
+  method = "ssgsea",
+  min.sz = 3,
+  max.sz = 2000,
+  verbose = TRUE
+)
+
+dim(gsva_go)
+dim(gsva_kegg)
+```
+
+## plots - go & kegg
+
+go - pca
+
+```{r}
+#| eval: false
+#| include: false
+#transpose
+gsva_go_t <- as.data.frame(t(gsva_go))
+gsva_go_t$Sample <- rownames(gsva_go_t)
+
+#metadata
+sample_info <- as.data.frame(colData(dds))
+sample_info$Sample <- rownames(sample_info)
+sample_info <- sample_info %>% select(Sample, Sample2, Stage2, Species)
+
+#merge
+gsva_go_t <- left_join(gsva_go_t, sample_info, by = "Sample")
+
+#median (of biological replicates)
+gsva_go_median <- gsva_go_t %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+expr_values <- gsva_go_median %>% select(-Sample2, -Stage2, -Species)
+exprs_mat <- t(as.matrix(expr_values))
+colnames(exprs_mat) <- gsva_go_median$Sample2
+rownames(exprs_mat) <- colnames(expr_values)
+
+#pca, variance
+pca_go <- prcomp(t(exprs_mat), scale. = TRUE)
+percentVar_go <- round(100 * (pca_go$sdev^2 / sum(pca_go$sdev^2)), 1)
+
+#data + metadata
+pcaData_go <- as.data.frame(pca_go$x)
+pcaData_go$Sample2 <- gsva_go_median$Sample2
+pcaData_go$Stage2 <- gsva_go_median$Stage2
+pcaData_go$Species <- gsva_go_median$Species
+
+p_go <- ggplot(pcaData_go, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar_go[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_go[2], "% variance")) +
+  ggtitle("PCA of GO enrichment scores") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "blattella" = 17,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "blattella" = expression(italic("B. germanica")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p_go)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_GO_stage_species.png",
+       p_go, width = 11, height = 8, dpi = 300)
+```
+
+heatmap
+
+```{r}
+#| eval: false
+#| include: false
+#100 most changeable genes
+var_idx <- order(apply(gsva_go, 1, var), decreasing = TRUE)[1:100]
+
+species_labels <- c(
+  "drosophila" = "D. melanogaster",
+  "blattella"  = "B. germanica",
+  "plutella"   = "P. xylostella",
+  "locusta"    = "L. migratoria",
+  "harmonia"   = "H. axyridis"
+)
+
+#annotate columns
+ann_col <- gsva_go_median %>%
+  select(Sample2, Stage2, Species) %>%
+  dplyr::rename(Stage = Stage2) %>%
+  column_to_rownames("Sample2")
+
+ann_col$Species <- factor(species_labels[ann_col$Species],
+                          levels = species_labels)
+
+#colors from ggplot (pca, umap)
+stages_order <- c("Adult Female", "Adult Male", "Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa")
+stage_colors <- setNames(scales::hue_pal()(length(stages_order)), stages_order)
+
+species_levels <- unique(ann_col$Species)
+species_colors <- setNames(RColorBrewer::brewer.pal(n = length(species_levels), "Accent"),
+                                 species_levels)
+
+ann_colors <- list(Stage = stage_colors,
+                   Species = species_colors)
+
+heat_colors <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(100)
+#heatmap
+ph <- pheatmap(exprs_mat[var_idx, ],
+         annotation_col = ann_col,
+         annotation_colors = ann_colors,
+         #normalization according to row
+         scale = "row",
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "ward.D2",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_col = 8,
+         fontsize = 12,
+         border_color = NA,
+         angle_col = 45,
+         fontsize_row = 5,
+         main = "Top 100 variable GO terms",
+         color = heat_colors
+         )
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/heatmap_GO_top100.png", ph, width = 11, height = 8)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+exprs_mat_t <- t(exprs_mat)
+
+umap_res <- umap(exprs_mat_t, n_neighbors = 15, min_dist = 0.1, metric = "euclidean")
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+umap_df$Sample2 <- gsva_go_median$Sample2
+umap_df$Stage2 <- gsva_go_median$Stage2
+umap_df$Species <- gsva_go_median$Species
+
+p_umap <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 1000) +
+  ggtitle("UMAP of GO enrichment scores") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species")
+
+print(p_umap)
+
+ggsave("/home/cluster_user/Magisterka/plots/UMAP_GO_stage_species.png",
+       p_umap, width = 11, height = 8, dpi = 300)
+```
+
+pseudotime
+
+```{r}
+#| eval: false
+#| include: false
+print(percentVar_go)
+print(sum(percentVar_go[0:6]))
+
+#from pca matrix, first 6 main components (74.4% variance explained)
+pc_mat_all <- as.matrix(pcaData_go[, paste0("PC", 1:6)])
+rownames(pc_mat_all) <- pcaData_go$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData_go$Pseudotime <- lambda_norm_all
+
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+
+pcaData_go$Stage2 <- factor(pcaData_go$Stage2, levels = stages_order)
+pcaData_go$Stage2 <- droplevels(pcaData_go$Stage2)
+
+cor_test <- cor(as.numeric(factor(pcaData_go$Stage2, levels = stages_order)), pcaData_go$Pseudotime, use = "complete.obs")
+
+print(cor_test)
+#make sure pseudotime goes from eggs to adults and not from adult to eggs
+if (cor_test < 0) {
+  pcaData_go$Pseudotime <- 1 - pcaData_go$Pseudotime
+}
+
+p1 <- ggplot(pcaData_go, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (GOs) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_GO_stage_species.png",
+       p1, width = 11, height = 8, dpi = 300)
+
+p2 <- ggplot(pcaData_go, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (GOs) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_GO_stage_species.png",
+       p2, width = 11, height = 8, dpi = 300)
+
+pseudotime_summary <- pcaData_go %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (GOs) - PCA",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_GO_stage_species.png",
+       p3, width = 11, height = 8, dpi = 300)
+```
+
+pca
+
+```{r}
+#| eval: false
+#| include: false
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:6)
+#sort point
+curve_line <- curve_line[order(pcaData_go$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData_go, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar_go[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_go[2], "% variance")) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on PCA plot (GOs)",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_GO_stage_species.png",
+        p_curve, width = 11, height = 8, dpi = 300)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+umap_mat_all <- as.matrix(umap_df[, c("UMAP1", "UMAP2")])
+rownames(umap_mat_all) <- umap_df$Sample2
+
+#match curve on umap
+umap_curve_all <- principal_curve(umap_mat_all)
+
+#count pseudotime
+lambda_all <- umap_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+umap_df$Pseudotime <- lambda_norm_all
+
+#check pseudotime direction
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+umap_df$Stage2 <- factor(umap_df$Stage2, levels = stages_order)
+umap_df$Stage2 <- droplevels(umap_df$Stage2)
+
+cor_test <- cor(as.numeric(factor(umap_df$Stage2, levels = stages_order)),
+                umap_df$Pseudotime, use = "complete.obs")
+print(cor_test)
+
+#swap pseudotime if needed
+if (cor_test < 0) {
+  umap_df$Pseudotime <- 1 - umap_df$Pseudotime
+}
+
+#plots
+
+#pseudotime vs stage
+p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (GOs) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_GO_stage_species.png", p1, width = 11, height = 8, dpi = 300)
+
+#pseudotime vs stage+species
+p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (GOs) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_umap_GO_stage_species.png", p2, width = 11, height = 8, dpi = 300)
+
+#pseudotime summary line plot
+pseudotime_summary <- umap_df %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (GOs) - UMAP",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_umap_GO_stage_species.png", p3, width = 11, height = 8, dpi = 300)
+
+#trajectory curve
+curve_line <- as.data.frame(umap_curve_all$s)
+colnames(curve_line) <- c("UMAP1", "UMAP2")
+curve_line <- curve_line[order(umap_df$Pseudotime), ]
+
+#umap plot
+p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(
+    data = curve_line,
+    aes(x = UMAP1, y = UMAP2),
+    inherit.aes = FALSE,
+    color = "black",
+    size = 1.2,
+    alpha = 0.7
+  ) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on UMAP (GOs)",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_umap_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_umap_GO_stage_species.png",
+       p_umap_curve, width = 11, height = 8, dpi = 300)
+```
+
+kegg pathways - pca
+
+```{r}
+#| eval: false
+#| include: false
+#transpose
+gsva_kegg_t <- as.data.frame(t(gsva_kegg))
+gsva_kegg_t$Sample <- rownames(gsva_kegg_t)
+
+#metadata
+sample_info <- as.data.frame(colData(dds))
+sample_info$Sample <- rownames(sample_info)
+sample_info <- sample_info %>% select(Sample, Sample2, Stage2, Species)
+
+#merge
+gsva_kegg_t <- left_join(gsva_kegg_t, sample_info, by = "Sample")
+
+#median
+gsva_kegg_median <- gsva_kegg_t %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+expr_values <- gsva_kegg_median %>% select(-Sample2, -Stage2, -Species)
+exprs_mat <- t(as.matrix(expr_values))
+colnames(exprs_mat) <- gsva_kegg_median$Sample2
+rownames(exprs_mat) <- colnames(expr_values)
+
+#pca, variance
+pca_kegg <- prcomp(t(exprs_mat), scale. = TRUE)
+percentVar_kegg <- round(100 * (pca_kegg$sdev^2 / sum(pca_kegg$sdev^2)), 1)
+
+#data + metadata
+pcaData_kegg <- as.data.frame(pca_kegg$x)
+pcaData_kegg$Sample2 <- gsva_kegg_median$Sample2
+pcaData_kegg$Stage2 <- gsva_kegg_median$Stage2
+pcaData_kegg$Species <- gsva_kegg_median$Species
+
+p_kegg <- ggplot(pcaData_kegg, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar_kegg[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_kegg[2], "% variance")) +
+  ggtitle("PCA of KEGG enrichment scores") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "blattella" = 17,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "blattella" = expression(italic("B. germanica")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p_kegg)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_KEGG_stage_species.png",
+       p_kegg, width = 11, height = 8, dpi = 300)
+```
+
+heatmap
+
+```{r}
+#| eval: false
+#| include: false
+#100 most changeable genes
+var_idx <- order(apply(gsva_kegg, 1, var), decreasing = TRUE)[1:100]
+
+#annotate columns
+ann_col <- gsva_kegg_median %>%
+  select(Sample2, Stage2, Species) %>%
+  dplyr::rename(Stage = Stage2) %>%
+  column_to_rownames("Sample2")
+
+ann_col$Species <- factor(species_labels[ann_col$Species],
+                          levels = species_labels)
+
+#colors from ggplot (pca, umap)
+stages_order <- c("Adult Female", "Adult Male", "Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa")
+stage_colors <- setNames(scales::hue_pal()(length(stages_order)), stages_order)
+
+
+species_levels <- unique(ann_col$Species)
+species_colors <- setNames(RColorBrewer::brewer.pal(n = length(species_levels), "Accent"),
+                                 species_levels)
+
+ann_colors <- list(Stage = stage_colors,
+                   Species = species_colors)
+#heatmap
+ph <- pheatmap(exprs_mat[var_idx, ],
+         annotation_col = ann_col,
+         annotation_colors = ann_colors,
+         scale = "row",
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "ward.D2",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_col = 8,
+         fontsize = 12,
+         border_color = NA,
+         angle_col = 45,
+         fontsize_row = 5,
+         main = "Top 100 variable KEGG terms",
+         color = heat_colors
+         )
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/heatmap_kegg_top100.png", ph, width = 11, height = 8)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+exprs_mat_t <- t(exprs_mat)
+
+umap_res <- umap(exprs_mat_t, n_neighbors = 15, min_dist = 0.1, metric = "euclidean")
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+umap_df$Sample2 <- gsva_kegg_median$Sample2
+umap_df$Stage2 <- gsva_kegg_median$Stage2
+umap_df$Species <- gsva_kegg_median$Species
+
+p_umap <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 1000) +
+  ggtitle("UMAP of KEGG enrichment scores") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species")
+
+print(p_umap)
+
+ggsave("/home/cluster_user/Magisterka/plots/UMAP_kegg_stage_species.png",
+       p_umap, width = 11, height = 8, dpi = 300)
+```
+
+pseudotime
+
+```{r}
+#| eval: false
+#| include: false
+print(percentVar_kegg)
+print(sum(percentVar_kegg[0:6]))
+
+#from pca matrix, first 6 main components (73.1% variance explained)
+pc_mat_all <- as.matrix(pcaData_kegg[, paste0("PC", 1:6)])
+rownames(pc_mat_all) <- pcaData_kegg$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData_kegg$Pseudotime <- lambda_norm_all
+
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+
+pcaData_kegg$Stage2 <- factor(pcaData_kegg$Stage2, levels = stages_order)
+pcaData_kegg$Stage2 <- droplevels(pcaData_kegg$Stage2)
+
+cor_test <- cor(as.numeric(factor(pcaData_kegg$Stage2, levels = stages_order)), pcaData_kegg$Pseudotime, use = "complete.obs")
+
+print(cor_test)
+#make sure pseudotime goes from eggs to adults and not from adult to eggs
+if (cor_test < 0) {
+  pcaData_kegg$Pseudotime <- 1 - pcaData_kegg$Pseudotime
+}
+
+p1 <- ggplot(pcaData_kegg, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (KEGG pathways) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_kegg_stage_species.png",
+       p1, width = 11, height = 8, dpi = 300)
+
+p2 <- ggplot(pcaData_kegg, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (KEGG pathways) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_kegg_stage_species.png",
+       p2, width = 11, height = 8, dpi = 300)
+
+pseudotime_summary <- pcaData_kegg %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (KEGG pathways) - PCA",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_kegg_stage_species.png",
+       p3, width = 11, height = 8, dpi = 300)
+```
+
+pca
+
+```{r}
+#| eval: false
+#| include: false
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:6)
+#sort point
+curve_line <- curve_line[order(pcaData_kegg$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData_kegg, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar_kegg[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_kegg[2], "% variance")) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on PCA plot (KEGG pathways)",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_kegg_stage_species.png",
+        p_curve, width = 11, height = 8, dpi = 300)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+umap_mat_all <- as.matrix(umap_df[, c("UMAP1", "UMAP2")])
+rownames(umap_mat_all) <- umap_df$Sample2
+
+#match curve on umap
+umap_curve_all <- principal_curve(umap_mat_all)
+
+#count pseudotime
+lambda_all <- umap_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+umap_df$Pseudotime <- lambda_norm_all
+
+#check pseudotime direction
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+umap_df$Stage2 <- factor(umap_df$Stage2, levels = stages_order)
+umap_df$Stage2 <- droplevels(umap_df$Stage2)
+
+cor_test <- cor(as.numeric(factor(umap_df$Stage2, levels = stages_order)),
+                umap_df$Pseudotime, use = "complete.obs")
+print(cor_test)
+
+#swap pseudotime if needed
+if (cor_test < 0) {
+  umap_df$Pseudotime <- 1 - umap_df$Pseudotime
+}
+
+#plots
+
+#pseudotime vs stage
+p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (KEGG pathways) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_KEGG_stage_species.png", p1, width = 11, height = 8, dpi = 300)
+
+#pseudotime vs stage+species
+p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (KEGG pathways) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_umap_KEGG_stage_species.png", p2, width = 11, height = 8, dpi = 300)
+
+#pseudotime summary line plot
+pseudotime_summary <- umap_df %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (KEGG pathways) - UMAP",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_umap_KEGG_stage_species.png", p3, width = 11, height = 8, dpi = 300)
+
+#trajectory curve
+curve_line <- as.data.frame(umap_curve_all$s)
+colnames(curve_line) <- c("UMAP1", "UMAP2")
+curve_line <- curve_line[order(umap_df$Pseudotime), ]
+
+#umap plot
+p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(
+    data = curve_line,
+    aes(x = UMAP1, y = UMAP2),
+    inherit.aes = FALSE,
+    color = "black",
+    size = 1.2,
+    alpha = 0.7
+  ) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on UMAP (KEGG pathways)",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_umap_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_umap_KEGG_stage_species.png",
+       p_umap_curve, width = 11, height = 8, dpi = 300)
+```
+
+## no species effect
+
+go - pca
+
+```{r}
+#| eval: false
+#| include: false
+species <- colData(dds)[colnames(gsva_go), "Species"]
+
+#delete species effect by linear function
+residuals_go <- apply(gsva_go, 1, function(x) {
+  lm(x ~ species)$residuals
+})
+residuals_go <- t(residuals_go)
+colnames(residuals_go) <- colnames(gsva_go)
+rownames(residuals_go) <- rownames(gsva_go)
+
+#median
+resid_df <- as.data.frame(t(residuals_go))
+resid_df$Sample <- rownames(resid_df)
+
+sample_info <- data.frame(colData(dds))
+sample_info$Sample <- rownames(sample_info)
+sample_info <- sample_info %>% select(Sample, Sample2, Stage2, Species)
+
+resid_df <- dplyr::left_join(resid_df, sample_info, by = "Sample")
+
+resid_median <- resid_df %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+expr_median <- resid_median %>% select(-Stage2, -Species)
+samples <- resid_median$Sample2
+expr_values <- resid_median %>% select(-Sample2, -Stage2, -Species)
+
+exprs_mat <- t(as.matrix(expr_values))
+colnames(exprs_mat) <- resid_median$Sample2
+rownames(exprs_mat) <- colnames(expr_values)
+
+#pca, variance
+pca_go <- prcomp(t(exprs_mat), scale. = TRUE)
+percentVar_go <- round(100 * (pca_go$sdev^2 / sum(pca_go$sdev^2)), 1)
+
+#data + metadata
+pcaData_go <- as.data.frame(pca_go$x)
+pcaData_go$Sample2 <- resid_median$Sample2
+pcaData_go$Stage2 <- resid_median$Stage2
+pcaData_go$Species <- resid_median$Species
+
+p_go <- ggplot(pcaData_go, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar_go[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_go[2], "% variance")) +
+  ggtitle("PCA of GO enrichment scores (removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "blattella" = 17,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "blattella" = expression(italic("B. germanica")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p_go)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_GO_stage.png",
+       p_go, width = 11, height = 8, dpi = 300)
+```
+
+heatmap
+
+```{r}
+#| eval: false
+#| include: false
+#100 most changeable genes
+var_idx <- order(apply(exprs_mat, 1, var), decreasing = TRUE)[1:100]
+
+#annotate columns
+ann_col <- data.frame(
+  Stage = resid_median$Stage2,
+  Species = resid_median$Species
+)
+rownames(ann_col) <- colnames(exprs_mat)
+
+ann_col$Species <- factor(species_labels[ann_col$Species],
+                          levels = species_labels)
+
+#colors from ggplot (pca, umap)
+stages_order <- c("Adult Female", "Adult Male", "Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa")
+stage_colors <- setNames(scales::hue_pal()(length(stages_order)), stages_order)
+
+
+species_levels <- unique(ann_col$Species)
+species_colors_named <- setNames(RColorBrewer::brewer.pal(n = length(species_levels), "Accent"),
+                                 species_levels)
+ann_colors <- list(Stage = stage_colors,
+                   Species = species_colors_named)
+
+#heatmap
+ph <- pheatmap(exprs_mat[var_idx, ],
+         annotation_col = ann_col,
+         annotation_colors = ann_colors,
+         scale = "row",
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "ward.D2",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_col = 8,
+         fontsize = 12,
+         border_color = NA,
+         angle_col = 45,
+         fontsize_row = 5,
+         main = "Top 100 variable GO terms(removed species effect)",
+         color = heat_colors
+         )
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/heatmap_GO_top100_stage.png", ph, width = 11, height = 8)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+exprs_mat_t <- t(exprs_mat)
+
+umap_res <- umap(exprs_mat_t, n_neighbors = 15, min_dist = 0.1, metric = "euclidean")
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+umap_df$Sample2 <- resid_median$Sample2
+umap_df$Stage2 <- resid_median$Stage2
+umap_df$Species <- resid_median$Species
+
+p_umap <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 1000) +
+  ggtitle("UMAP of GO enrichment scores (removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species")
+
+print(p_umap)
+
+ggsave("/home/cluster_user/Magisterka/plots/UMAP_GO_stage.png",
+       p_umap, width = 11, height = 8, dpi = 300)
+```
+
+pseudotime
+
+```{r}
+#| eval: false
+#| include: false
+print(percentVar_go)
+print(sum(percentVar_go[0:6]))
+
+#from pca matrix, first 6 main components (71.9% variance explained)
+pc_mat_all <- as.matrix(pcaData_go[, paste0("PC", 1:6)])
+rownames(pc_mat_all) <- pcaData_go$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData_go$Pseudotime <- lambda_norm_all
+
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+
+pcaData_go$Stage2 <- factor(pcaData_go$Stage2, levels = stages_order)
+pcaData_go$Stage2 <- droplevels(pcaData_go$Stage2)
+
+cor_test <- cor(as.numeric(factor(pcaData_go$Stage2, levels = stages_order)), pcaData_go$Pseudotime, use = "complete.obs")
+
+print(cor_test)
+#make sure pseudotime goes from eggs to adults and not from adult to eggs
+if (cor_test < 0) {
+  pcaData_go$Pseudotime <- 1 - pcaData_go$Pseudotime
+}
+
+p1 <- ggplot(pcaData_go, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (GOs, removed species effect) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_GO_stage.png",
+       p1, width = 11, height = 8, dpi = 300)
+
+p2 <- ggplot(pcaData_go, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (GOs, removed species effect) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_GO_stage.png",
+       p2, width = 11, height = 8, dpi = 300)
+
+pseudotime_summary <- pcaData_go %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (GOs, removed species effect) - PCA",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_GO_stage.png",
+       p3, width = 11, height = 8, dpi = 300)
+```
+
+pca
+
+```{r}
+#| eval: false
+#| include: false
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:6)
+#sort point
+curve_line <- curve_line[order(pcaData_go$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData_go, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar_go[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_go[2], "% variance")) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on PCA plot (GOs, removed species effect)",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_GO_stage.png",
+        p_curve, width = 11, height = 8, dpi = 300)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+umap_mat_all <- as.matrix(umap_df[, c("UMAP1", "UMAP2")])
+rownames(umap_mat_all) <- umap_df$Sample2
+
+#match curve on umap
+umap_curve_all <- principal_curve(umap_mat_all)
+
+#count pseudotime
+lambda_all <- umap_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+umap_df$Pseudotime <- lambda_norm_all
+
+#check pseudotime direction
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+umap_df$Stage2 <- factor(umap_df$Stage2, levels = stages_order)
+umap_df$Stage2 <- droplevels(umap_df$Stage2)
+
+cor_test <- cor(as.numeric(factor(umap_df$Stage2, levels = stages_order)),
+                umap_df$Pseudotime, use = "complete.obs")
+print(cor_test)
+
+#swap pseudotime if needed
+if (cor_test < 0) {
+  umap_df$Pseudotime <- 1 - umap_df$Pseudotime
+}
+
+#plots
+
+#pseudotime vs stage
+p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (GOs, removed species effect) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_GO_stage.png", p1, width = 11, height = 8, dpi = 300)
+
+#pseudotime vs stage+species
+p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (GOs, removed species effect) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_umap_GO_stage.png", p2, width = 11, height = 8, dpi = 300)
+
+#pseudotime summary line plot
+pseudotime_summary <- umap_df %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (GOs, removed species effect) - UMAP",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_umap_GO_stage.png", p3, width = 11, height = 8, dpi = 300)
+
+#trajectory curve
+curve_line <- as.data.frame(umap_curve_all$s)
+colnames(curve_line) <- c("UMAP1", "UMAP2")
+curve_line <- curve_line[order(umap_df$Pseudotime), ]
+
+#umap plot
+p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(
+    data = curve_line,
+    aes(x = UMAP1, y = UMAP2),
+    inherit.aes = FALSE,
+    color = "black",
+    size = 1.2,
+    alpha = 0.7
+  ) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on UMAP (GOs, removed species effect)",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_umap_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_umap_GO_stage.png",
+       p_umap_curve, width = 11, height = 8, dpi = 300)
+```
+
+kegg pathway - pca
+
+```{r}
+#| eval: false
+#| include: false
+species <- colData(dds)[colnames(gsva_kegg), "Species"]
+
+#delete species effect by linear function
+residuals_KEGG <- apply(gsva_kegg, 1, function(x) {
+  lm(x ~ species)$residuals
+})
+residuals_KEGG <- t(residuals_KEGG)
+colnames(residuals_KEGG) <- colnames(gsva_kegg)
+rownames(residuals_KEGG) <- rownames(gsva_kegg)
+
+#median
+resid_df <- as.data.frame(t(residuals_KEGG))
+resid_df$Sample <- rownames(resid_df)
+
+sample_info <- data.frame(colData(dds))
+sample_info$Sample <- rownames(sample_info)
+sample_info <- sample_info %>% select(Sample, Sample2, Stage2, Species)
+
+resid_df <- dplyr::left_join(resid_df, sample_info, by = "Sample")
+
+resid_median <- resid_df %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+expr_median <- resid_median %>% select(-Stage2, -Species)
+samples <- resid_median$Sample2
+expr_values <- resid_median %>% select(-Sample2, -Stage2, -Species)
+
+exprs_mat <- t(as.matrix(expr_values))
+colnames(exprs_mat) <- resid_median$Sample2
+rownames(exprs_mat) <- colnames(expr_values)
+
+#pca, variance
+pca_KEGG <- prcomp(t(exprs_mat), scale. = TRUE)
+percentVar_KEGG <- round(100 * (pca_KEGG$sdev^2 / sum(pca_KEGG$sdev^2)), 1)
+
+#data + metadata
+pcaData_KEGG <- as.data.frame(pca_KEGG$x)
+pcaData_KEGG$Sample2 <- resid_median$Sample2
+pcaData_KEGG$Stage2 <- resid_median$Stage2
+pcaData_KEGG$Species <- resid_median$Species
+
+p_KEGG <- ggplot(pcaData_KEGG, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar_KEGG[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_KEGG[2], "% variance")) +
+  ggtitle("PCA of KEGG enrichment scores (removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "blattella" = 17,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "blattella" = expression(italic("B. germanica")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p_KEGG)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_KEGG_stage.png",
+       p_KEGG, width = 11, height = 8, dpi = 300)
+```
+
+heatmap
+
+```{r}
+#| eval: false
+#| include: false
+#100 most changeable genes
+var_idx <- order(apply(exprs_mat, 1, var), decreasing = TRUE)[1:100]
+
+#annotate columns
+ann_col <- data.frame(
+  Stage = resid_median$Stage2,
+  Species = resid_median$Species
+)
+rownames(ann_col) <- colnames(exprs_mat)
+
+ann_col$Species <- factor(species_labels[ann_col$Species],
+                          levels = species_labels)
+
+#colors from ggplot (pca, umap)
+stages_order <- c("Adult Female", "Adult Male", "Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa")
+stage_colors <- setNames(scales::hue_pal()(length(stages_order)), stages_order)
+
+
+species_levels <- unique(ann_col$Species)
+species_colors_named <- setNames(RColorBrewer::brewer.pal(n = length(species_levels), "Accent"),
+                                 species_levels)
+ann_colors <- list(Stage = stage_colors,
+                   Species = species_colors_named)
+
+#heatmap
+ph <- pheatmap(exprs_mat[var_idx, ],
+         annotation_col = ann_col,
+         annotation_colors = ann_colors,
+         scale = "row",
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "ward.D2",
+         show_rownames = TRUE,
+         show_colnames = TRUE,
+         fontsize_col = 8,
+         fontsize = 12,
+         border_color = NA,
+         angle_col = 45,
+         fontsize_row = 5,
+         main = "  Top 100 variable KEGG terms (removed species effect)",
+         color = heat_colors
+         )
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/heatmap_KEGG_top100_stage.png", ph, width = 11, height = 8)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+exprs_mat_t <- t(exprs_mat)
+
+umap_res <- umap(exprs_mat_t, n_neighbors = 15, min_dist = 0.1, metric = "euclidean")
+
+umap_df <- as.data.frame(umap_res)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+umap_df$Sample2 <- resid_median$Sample2
+umap_df$Stage2 <- resid_median$Stage2
+umap_df$Species <- resid_median$Species
+
+p_umap <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 1000) +
+  ggtitle("UMAP of KEGG enrichment scores (removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species")
+
+print(p_umap)
+
+ggsave("/home/cluster_user/Magisterka/plots/UMAP_KEGG_stage.png",
+       p_umap, width = 11, height = 8, dpi = 300)
+```
+
+pseudotime
+
+```{r}
+#| eval: false
+#| include: false
+print(percentVar_KEGG)
+print(sum(percentVar_KEGG[0:6]))
+
+#from pca matrix, first 6 main components (70.9% variance explained)
+pc_mat_all <- as.matrix(pcaData_KEGG[, paste0("PC", 1:6)])
+rownames(pc_mat_all) <- pcaData_KEGG$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData_KEGG$Pseudotime <- lambda_norm_all
+
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+
+pcaData_KEGG$Stage2 <- factor(pcaData_KEGG$Stage2, levels = stages_order)
+pcaData_KEGG$Stage2 <- droplevels(pcaData_KEGG$Stage2)
+
+cor_test <- cor(as.numeric(factor(pcaData_KEGG$Stage2, levels = stages_order)), pcaData_KEGG$Pseudotime, use = "complete.obs")
+
+print(cor_test)
+#make sure pseudotime goes from eggs to adults and not from adult to eggs
+if (cor_test < 0) {
+  pcaData_KEGG$Pseudotime <- 1 - pcaData_KEGG$Pseudotime
+}
+
+p1 <- ggplot(pcaData_KEGG, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (KEGG pathways, removed species effect) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_kegg_stage.png",
+       p1, width = 11, height = 8, dpi = 300)
+
+p2 <- ggplot(pcaData_KEGG, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (KEGG pathways, removed species effect) - PCA",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_kegg_stage.png",
+       p2, width = 11, height = 8, dpi = 300)
+
+pseudotime_summary <- pcaData_KEGG %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (KEGG pathways, removed species effect) - PCA",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_kegg_stage.png",
+       p3, width = 11, height = 8, dpi = 300)
+```
+
+pca
+
+```{r}
+#| eval: false
+#| include: false
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:6)
+#sort point
+curve_line <- curve_line[order(pcaData_KEGG$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData_KEGG, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar_KEGG[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar_KEGG[2], "% variance")) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on PCA plot (KEGG pathways, removed species effect)",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_kegg_stage.png",
+        p_curve, width = 11, height = 8, dpi = 300)
+```
+
+umap
+
+```{r}
+#| eval: false
+#| include: false
+umap_mat_all <- as.matrix(umap_df[, c("UMAP1", "UMAP2")])
+rownames(umap_mat_all) <- umap_df$Sample2
+
+#match curve on umap
+umap_curve_all <- principal_curve(umap_mat_all)
+
+#count pseudotime
+lambda_all <- umap_curve_all$lambda
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+umap_df$Pseudotime <- lambda_norm_all
+
+#check pseudotime direction
+stages_order <- c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+umap_df$Stage2 <- factor(umap_df$Stage2, levels = stages_order)
+umap_df$Stage2 <- droplevels(umap_df$Stage2)
+
+cor_test <- cor(as.numeric(factor(umap_df$Stage2, levels = stages_order)),
+                umap_df$Pseudotime, use = "complete.obs")
+print(cor_test)
+
+#swap pseudotime if needed
+if (cor_test < 0) {
+  umap_df$Pseudotime <- 1 - umap_df$Pseudotime
+}
+
+#plots
+
+#pseudotime vs stage
+p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+    ) +
+  labs(
+    title = "Pseudotime across stages (KEGG pathways, removed species effect) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_KEGG_stage.png", p1, width = 11, height = 8, dpi = 300)
+
+#pseudotime vs stage+species
+p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  theme_minimal() +
+  scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Pseudotime distribution (KEGG pathways, removed species effect) - UMAP",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+print(p2)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime2_umap_KEGG_stage.png", p2, width = 11, height = 8, dpi = 300)
+
+#pseudotime summary line plot
+pseudotime_summary <- umap_df %>%
+  group_by(Species, Stage2) %>%
+  summarise(
+    median_pseudo = median(Pseudotime),
+    sd_pseudo = sd(Pseudotime),
+    .groups = "drop"
+  )
+pseudotime_summary$Stage2 <- factor(pseudotime_summary$Stage2, levels = stages_order)
+pseudotime_summary$Stage2 <- droplevels(pseudotime_summary$Stage2)
+
+p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Species, color = Species)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  theme_minimal() +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Accent"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12, face = "italic"),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory (KEGG pathways, removed species effect) - UMAP",
+    y = "Median pseudotime",
+    x = "Developmental stage"
+  )
+print(p3)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_umap_KEGG_stage.png", p3, width = 11, height = 8, dpi = 300)
+
+#trajectory curve
+curve_line <- as.data.frame(umap_curve_all$s)
+colnames(curve_line) <- c("UMAP1", "UMAP2")
+curve_line <- curve_line[order(umap_df$Pseudotime), ]
+
+#umap plot
+p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
+  geom_point(size = 2.5, alpha = 0.8) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(
+    data = curve_line,
+    aes(x = UMAP1, y = UMAP2),
+    inherit.aes = FALSE,
+    color = "black",
+    size = 1.2,
+    alpha = 0.7
+  ) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = "Median pesudotime trajectory on UMAP (KEGG pathways, removed species effect)",
+    x = "UMAP1",
+    y = "UMAP2",
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_umap_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_umap_KEGG_stage.png",
+       p_umap_curve, width = 11, height = 8, dpi = 300)
+```
+
+# correlation to stages - impactful genes/GOs
+
+```{r}
+dds <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/dds_batch.rds")
+
+vst <- varianceStabilizingTransformation(dds, blind = FALSE)
+```
+
+## functions - correlation and enrichement and plots
+
+```{r}
+run_stage_correlation <- function(expr_mat,
+                                   stage_vector,
+                                   species_vector,
+                                   method = "spearman",
+                                   aggregate = "mean") {
+
+  # checks
+  stopifnot(
+    ncol(expr_mat) == length(stage_vector),
+    length(stage_vector) == length(species_vector)
+  )
+
+  # per-gene correlation within species
+  cor_list <- apply(expr_mat, 1, function(gene_expr) {
+
+    df <- data.frame(
+      expr   = gene_expr,
+      stage  = stage_vector,
+      species = species_vector
+    )
+
+    # compute correlation per species
+    per_species <- lapply(split(df, df$species), function(d) {
+
+      if (length(unique(d$stage)) < 2) return(c(rho = NA, p = NA))
+
+      ct <- suppressWarnings(
+        cor.test(d$expr, d$stage, method = method)
+      )
+
+      c(rho = unname(ct$estimate), p = ct$p.value)
+    })
+
+    per_species <- do.call(rbind, per_species)
+
+    # aggregate across species
+    rho_vals <- per_species[, "rho"]
+
+    rho_agg <- switch(
+      aggregate,
+      mean = mean(rho_vals, na.rm = TRUE),
+      median = median(rho_vals, na.rm = TRUE)
+    )
+
+    # combine p-values (Fisher method)
+    p_vals <- per_species[, "p"]
+
+    p_vals <- p_vals[!is.na(p_vals)]
+
+    if (length(p_vals) > 0) {
+      chi <- -2 * sum(log(p_vals))
+      p_agg <- pchisq(chi, df = 2 * length(p_vals), lower.tail = FALSE)
+    } else {
+      p_agg <- NA
+    }
+
+    c(rho = rho_agg, p = p_agg)
+  })
+
+  # format output
+  cor_df <- as.data.frame(t(cor_list))
+  cor_df$gene_id <- rownames(cor_df)
+
+  cor_df$padj <- p.adjust(cor_df$p, method = "BH")
+
+  return(cor_df)
+}
+
+classify_trend_genes <- function(cor_df, rho_cutoff = 0.5, padj_cutoff = 0.05) {
+  #classify genes showing strong early or late developmental trends
+  
+  cor_df %>%
+    mutate(
+      trend = case_when(
+        rho > rho_cutoff & padj < padj_cutoff ~ "Late",
+        rho < -rho_cutoff & padj < padj_cutoff ~ "Early",
+        TRUE ~ "Other"
+      )
+    )
+}
+
+run_gsea <- function(cor_df, term2gene,
+                                minGSSize = 10,
+                                maxGSSize = 500,
+                                pvalueCutoff = 0.05) {
+  #Run gene set enrichment analysis using ranked gene–stage correlations
+  
+  #create ranked gene list using correlation coefficient
+  gene_list <- cor_df %>%
+    arrange(desc(rho)) %>%
+    select(gene_id, rho)
+  
+  #convert to named numeric vector required by GSEA
+  gene_list_vec <- setNames(gene_list$rho, gene_list$gene_id)
+  gene_list_vec <- sort(gene_list_vec, decreasing = TRUE)
+  
+  #run GSEA
+  gsea_res <- GSEA(
+    geneList = gene_list_vec,
+    TERM2GENE = term2gene,
+    minGSSize = minGSSize,
+    maxGSSize = maxGSSize,
+    pvalueCutoff = pvalueCutoff,
+    verbose = TRUE
+  )
+  
+  #convert result to dataframe and classify enrichment direction
+  as.data.frame(gsea_res) %>%
+    dplyr::mutate(direction = ifelse(NES > 0, "Late-associated", "Early-associated"))
+}
+
+annotate_go_terms <- function(gsea_df) {
+  #Add GO term names and ontology categories to GSEA results
+  
+  #helper function returning GO term name
+  get_term <- function(go_id) {
+    term <- GO.db::GOTERM[[go_id]]
+    if (is.null(term)) NA_character_ else Term(term)
+  }
+  
+  #helper function returning GO ontology (BP/MF/CC)
+  get_ontology <- function(go_id) {
+    term <- GO.db::GOTERM[[go_id]]
+    if (is.null(term)) NA_character_ else Ontology(term)
+  }
+  
+  #annotate GO IDs with term name and ontology
+  gsea_df %>%
+    mutate(
+      Term = vapply(ID, get_term, character(1)),
+      Ontology = vapply(ID, get_ontology, character(1))
+    )
+}
+
+plot_gene_trends <- function(expr_matrix,
+                             gene_cor,
+                             sample_info,
+                             dataset_label = "nymph",
+                             rho_cutoff = 0.5,
+                             bins = 50) {
+  # 1. Ensure trend factor
+  gene_cor <- gene_cor %>%
+    mutate(trend = case_when(
+      rho >  rho_cutoff ~ "Late",
+      rho < -rho_cutoff ~ "Early",
+      TRUE ~ "Other"
+    )) %>%
+    mutate(trend = factor(trend, levels = c("Other", "Early", "Late")))
+
+  # 2. Correlation distribution plot
+  p_hist <- ggplot(gene_cor, aes(rho, fill = trend)) +
+    geom_histogram(bins = bins, position = "stack", color = "white") +
+    geom_vline(
+      xintercept = c(-rho_cutoff, 0, rho_cutoff),
+      linetype = c("dotted", "dashed", "dotted"),
+      color = "grey40"
+    ) +
+    scale_fill_manual(values = c(
+      Early = "#2C7BB6",
+      Late = "#D7191C",
+      Other = "grey85"
+    )) +
+    theme_classic() +
+    labs(
+      x = "Spearman correlation (ρ)",
+      y = "Gene count",
+      fill = "Trend",
+      title = paste0(
+        "Distribution of gene–development correlations\nin ", dataset_label
+      )
+    )
+
+  # 3. Long format expression data
+  expr_long <- expr_matrix %>%
+    as.data.frame() %>%
+    rownames_to_column("gene_id") %>%
+    pivot_longer(
+      -gene_id,
+      names_to = "Sample",
+      values_to = "expression"
+    ) %>%
+    left_join(gene_cor %>% select(gene_id, rho), by = "gene_id") %>%
+    left_join(sample_info %>% select(Sample, instar_scaled), by = "Sample") %>%
+    mutate(
+      trend = case_when(
+        rho >  rho_cutoff ~ "Late",
+        rho < -rho_cutoff ~ "Early",
+        TRUE ~ "Other"
+      )
+    )
+
+  # 4. Trend dynamics plot
+  p_trend <- expr_long %>%
+    filter(trend != "Other") %>%
+    ggplot(aes(instar_scaled, expression, color = trend, fill = trend)) +
+    geom_smooth(
+      method = "loess",
+      se = FALSE,
+      linewidth = 1.5
+    ) +
+    stat_summary(
+      fun.data = function(x) {
+        data.frame(
+          y = median(x),
+          ymin = quantile(x, 0.25),
+          ymax = quantile(x, 0.75)
+        )
+      },
+      geom = "ribbon",
+      alpha = 0.2,
+      color = NA
+    ) +
+    theme_classic(base_size = 14) +
+    scale_color_manual(values = c(
+      "Early" = "#4575B4",
+      "Late"  = "#D73027"
+    )) +
+    scale_fill_manual(values = c(
+      "Early" = "#4575B4",
+      "Late"  = "#D73027"
+    )) +
+    labs(
+      x = "Developmental progression (scaled)",
+      y = "Expression (VST)",
+      title = paste0(
+        "Opposing expression dynamics of early and late genes\nin ",
+        dataset_label
+      )
+    )
+
+  # Return both plots
+  return(list(
+    correlation_plot = p_hist,
+    trend_plot = p_trend
+  ))
+}
+
+plot_gene_trends_holo <- function(expr_matrix,
+                                  gene_cor,
+                                  sample_info,
+                                  dataset_label = "holometabolous",
+                                  rho_cutoff = 0.5,
+                                  bins = 50) {
+  # 1. Build trend classification
+  gene_cor <- gene_cor %>%
+    mutate(trend = case_when(
+      rho >  rho_cutoff ~ "Late",
+      rho < -rho_cutoff ~ "Early",
+      TRUE ~ "Other"
+    )) %>%
+    mutate(trend = factor(trend, levels = c("Other", "Early", "Late")))
+
+  # 2. Correlation histogram
+  p_hist <- ggplot(gene_cor, aes(rho, fill = trend)) +
+    geom_histogram(bins = bins, position = "stack", color = "white") +
+    geom_vline(
+      xintercept = c(-rho_cutoff, 0, rho_cutoff),
+      linetype = c("dotted", "dashed", "dotted"),
+      color = "grey40"
+    ) +
+    scale_fill_manual(values = c(
+      Early = "#2C7BB6",
+      Late = "#D7191C",
+      Other = "grey85"
+    )) +
+    theme_classic() +
+    labs(
+      x = "Spearman correlation (ρ)",
+      y = "Gene count",
+      fill = "Trend",
+      title = paste0(
+        "Distribution of gene–development correlations\nin ", dataset_label
+      )
+    )
+
+  # 3. Long expression table
+  expr_long <- expr_matrix %>%
+    as.data.frame() %>%
+    rownames_to_column("gene_id") %>%
+    pivot_longer(
+      -gene_id,
+      names_to = "Sample",
+      values_to = "expression"
+    ) %>%
+    left_join(gene_cor %>% select(gene_id, rho), by = "gene_id") %>%
+    left_join(
+      sample_info %>%
+        select(Sample, dev_scaled),   # <<< FIXED HERE
+      by = "Sample"
+    ) %>%
+    mutate(
+      trend = case_when(
+        rho >  rho_cutoff ~ "Late",
+        rho < -rho_cutoff ~ "Early",
+        TRUE ~ "Other"
+      )
+    )
+
+  # 4. Expression dynamics plot
+  p_trend <- expr_long %>%
+    filter(trend != "Other") %>%
+    ggplot(aes(dev_scaled, expression, color = trend, fill = trend)) +
+    geom_smooth(
+      method = "loess",
+      se = FALSE,
+      linewidth = 1.5
+    ) +
+    stat_summary(
+      fun.data = function(x) {
+        data.frame(
+          y = median(x),
+          ymin = quantile(x, 0.25),
+          ymax = quantile(x, 0.75)
+        )
+      },
+      geom = "ribbon",
+      alpha = 0.2,
+      color = NA
+    ) +
+    theme_classic(base_size = 14) +
+    scale_color_manual(values = c(
+      "Early" = "#4575B4",
+      "Late"  = "#D73027"
+    )) +
+    scale_fill_manual(values = c(
+      "Early" = "#4575B4",
+      "Late"  = "#D73027"
+    )) +
+    labs(
+      x = "Developmental progression (scaled)",
+      y = "Expression (VST)",
+      title = paste0(
+        "Opposing expression dynamics of early and late genes\nin ",
+        dataset_label
+      )
+    )
+
+  return(list(
+    correlation_plot = p_hist,
+    trend_plot = p_trend
+  ))
+}
+```
+
+## nymph
+
+```{r}
+# Expression matrix
+expr <- assay(vst)
+
+# Metadata
+sample_info <- as.data.frame(colData(vst))
+sample_info$Sample <- rownames(sample_info)
+
+sample_info <- sample_info %>%
+  mutate(
+    instar_number = case_when(
+      Stage2 == "Nymph" & grepl("\\d+", Stage) ~
+        as.numeric(gsub(".*?(\\d+).*", "\\1", Stage)),
+      TRUE ~ NA_real_
+    )
+  )
+
+#Nymph samples with species-specific ordering + normalization
+nymph_samples <- sample_info %>%
+  filter(Stage2 == "Nymph", !is.na(instar_number)) %>%
+  group_by(Species) %>%
+  mutate(
+    instar_rank   = dense_rank(instar_number),
+    instar_scaled = instar_rank / max(instar_rank)
+  ) %>%
+  ungroup()
+
+expr_nymph <- expr[, nymph_samples$Sample]
+instar     <- nymph_samples$instar_scaled
+
+
+#Correlation
+gene_cor <- run_stage_correlation(expr_nymph, instar, nymph_samples$Species)
+gene_cor <- classify_trend_genes(gene_cor)
+
+plots <- plot_gene_trends(
+  expr_matrix = expr_nymph,
+  gene_cor = gene_cor,
+  sample_info = nymph_samples,
+  dataset_label = "hemimetabolous nymphs"
+)
+
+plots$correlation_plot
+plots$trend_plot
+
+```
+
+### gsea
+
+```{r}
+#GSEA
+gsea_go_df <- run_gsea(gene_cor, t2g_go_common)
+```
+
+```{r}
+gsea_go_annotated <- annotate_go_terms(gsea_go_df)
+
+gsea_plot_df <- gsea_go_annotated %>%
+  filter(
+    p.adjust < 0.05,
+    !is.na(Term),
+    !is.na(NES)
+  ) %>%
+  group_by(direction) %>%
+  slice_max(abs(NES), n = 20) %>%
+  ungroup() %>%
+  mutate(
+    Term = stringr::str_wrap(Term, width = 40),
+    direction = factor(direction,
+      levels = c("Early-associated", "Late-associated")
+    )
+  )
+
+p <- ggplot(
+  gsea_plot_df,
+  aes(
+    x = NES,
+    y = tidytext::reorder_within(Term, NES, direction),
+    size = -log10(p.adjust)
+  )
+) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey70") +
+  geom_point(alpha = 0.8, color = "black") +
+  tidytext::scale_y_reordered() +
+  facet_wrap(~direction, scales = "free") +
+  scale_size(range = c(2, 6)) +
+  theme_classic(base_size = 13) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "grey95", color = NA),
+    axis.text.y = element_text(size = 8),
+    panel.spacing = unit(1, "cm")
+  ) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = "GO term",
+    size = "-log10(FDR)",
+    title = "Functional shifts during development\nnymphs"
+  )
+
+print(p)
+
+ggsave(
+  "/home/cluster_user/Magisterka/plots/nymph_gsea.png",
+  p,
+  width = 10,
+  height = 10,
+  dpi = 300
+)
+
+gsea_plot_df_bp <- gsea_go_annotated %>%
+  filter(
+    Ontology == "BP",
+    p.adjust < 0.05,
+    !is.na(Term),
+    !is.na(NES)
+  ) %>%
+  group_by(direction) %>%
+  slice_max(abs(NES), n = 20) %>%
+  ungroup() %>%
+  mutate(
+    Term = stringr::str_wrap(Term, width = 40),
+    direction = factor(direction,
+      levels = c("Early-associated", "Late-associated")
+    )
+  )
+
+p_bp <- ggplot(
+  gsea_plot_df_bp,
+  aes(
+    x = NES,
+    y = reorder_within(Term, NES, direction),
+    size = -log10(p.adjust)
+  )
+) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey70") +
+  geom_point(alpha = 0.8, color = "black") +
+  tidytext::scale_y_reordered() +
+  facet_wrap(~direction, scales = "free") +
+  scale_size(range = c(2, 6)) +
+  theme_classic(base_size = 13) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "grey95", color = NA),
+    axis.text.y = element_text(size = 8),
+    panel.spacing = unit(1, "cm")
+  ) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = "GO biological process",
+    size = "-log10(FDR)",
+    title = "Development-associated biological processes"
+  )
+
+print(p_bp)
+
+ggsave(
+  "/home/cluster_user/Magisterka/plots/nymph_gsea_bp.png",
+  p_bp,
+  width = 10,
+  height = 10,
+  dpi = 300
+)
+```
+
+```{r}
+# Extract core enrichment genes per GO
+gsea_go_genes <- gsea_go_annotated %>%
+  select(ID, core_enrichment) %>%
+  mutate(
+    gene_list = strsplit(core_enrichment, "/")
+  )
+
+# Compute pairwise Jaccard similarity
+jaccard_matrix <- outer(
+  gsea_go_genes$gene_list,
+  gsea_go_genes$gene_list,
+  Vectorize(function(x, y) length(intersect(x, y)) / length(union(x, y)))
+)
+
+# Hierarchical clustering
+hc <- hclust(as.dist(1 - jaccard_matrix))
+plot(hc)
+
+# Cut into clusters (e.g., 0.7 similarity threshold)
+clusters <- cutree(hc, h = 0.3)
+
+gsea_go_annotated$cluster <- clusters
+
+# Pick one representative per cluster (highest NES)
+gsea_collapsed <- gsea_go_annotated %>%
+  group_by(cluster) %>%
+  slice_max(NES, n = 1) %>%
+  ungroup()
+```
+
+## holometabolous
+
+```{r}
+# Expression matrix
+expr <- assay(vst)
+
+# Metadata
+sample_info <- as.data.frame(colData(vst))
+sample_info$Sample <- rownames(sample_info)
+
+sample_info <- sample_info %>% mutate(
+  larva_inst = case_when(
+    Stage2 == "Larva" & grepl("\\d+", Stage) ~
+      as.numeric(gsub(".*?(\\d+).*", "\\1", Stage)),
+    TRUE ~ NA_real_
+  ),
+  
+  prepupa_rank = case_when(
+    Stage2 == "Prepupa" & grepl("\\d+", Sample2) ~
+      as.numeric(gsub(".*?(\\d+).*", "\\1", Sample2)),
+    TRUE ~ NA_real_
+  ),
+  
+  pupa_rank = case_when(
+    Stage2 == "Pupa" & grepl("\\d+", Stage) ~
+      as.numeric(gsub(".*?(\\d+).*", "\\1", Stage)),
+    TRUE ~ NA_real_
+  )
+)
+
+sample_info <- sample_info %>%
+  group_by(Species) %>%
+  mutate(
+    max_larva   = max(larva_inst, na.rm = TRUE),
+    max_prepupa = max(prepupa_rank, na.rm = TRUE),
+    
+    dev_order = case_when(
+      Stage2 == "Larva"   ~ larva_inst,
+      Stage2 == "Prepupa" ~ prepupa_rank + max_larva,
+      Stage2 == "Pupa"    ~ pupa_rank + max_larva + max_prepupa,
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  ungroup()
+
+#normalize within species
+sample_info <- sample_info %>%
+  group_by(Species) %>%
+  mutate(dev_scaled = dev_order / max(dev_order, na.rm = TRUE)) %>%
+  ungroup()
+
+
+# Keep only holometabolic samples
+holo_samples <- sample_info %>%
+  filter(Stage2 %in% c("Larva", "Prepupa", "Pupa"),
+         !is.na(dev_scaled))
+
+expr_holo <- expr[, holo_samples$Sample]
+dev_order <- holo_samples$dev_scaled
+
+
+#Correlation
+gene_cor_holo <- run_stage_correlation(expr_holo, dev_order, holo_samples$Species)
+gene_cor_holo <- classify_trend_genes(gene_cor_holo)
+
+
+plots <- plot_gene_trends_holo(
+  expr_matrix = expr_holo,
+  gene_cor = gene_cor,
+  sample_info = holo_samples,
+  dataset_label = "holometabolous"
+)
+
+plots$correlation_plot
+plots$trend_plot
+```
+
+### gsea
+
+```{r}
+#GSEA
+gsea_go_holo_df <- run_gsea(gene_cor_holo, t2g_go_common)
+```
+
+```{r}
+# Annotate GSEA results
+gsea_go_holo_annotated <- annotate_go_terms(gsea_go_holo_df)
+
+# Full GO plot (all ontologies)
+gsea_plot_df <- gsea_go_holo_annotated %>%
+  filter(
+    p.adjust < 0.05,
+    !is.na(Term),
+    !is.na(NES)
+  ) %>%
+  group_by(direction) %>%
+  slice_max(abs(NES), n = 20) %>%
+  ungroup() %>%
+  mutate(
+    #Term = stringr::str_wrap(Term, width = 40),
+    direction = factor(direction,
+      levels = c("Early-associated", "Late-associated")
+    )
+  )
+
+
+p_holo <- ggplot(gsea_plot_df, aes(x = NES, y = reorder_within(Term, NES, direction),
+      size = -log10(p.adjust)
+    )) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey70") +
+  geom_point(alpha = 0.8, color = "black") +
+  tidytext::scale_y_reordered() +
+  facet_wrap(~direction, scales = "free") +
+  scale_size(range = c(2, 6)) +
+  theme_classic(base_size = 13) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "grey95", color = NA),
+    axis.text.y = element_text(size = 8),
+    panel.spacing = unit(1, "cm")
+  ) +
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = "GO term",
+    size = "-log10(FDR)",
+    title = "Functional context of genes driving holometabolic developmental trends"
+  )
+
+print(p_holo)
+
+ggsave(
+  "/home/cluster_user/Magisterka/plots/holo_gsea.png",
+  p_holo,
+  width = 12,
+  height = 10,
+  dpi = 300
+)
+
+# Biological Processes only
+gsea_plot_holo_bp <- gsea_go_holo_annotated %>%
+  filter(
+    Ontology == "BP",
+    p.adjust < 0.05,
+    !is.na(Term),
+    !is.na(NES)
+  ) %>%
+  group_by(direction) %>%
+  slice_max(abs(NES), n = 20) %>%
+  ungroup() %>%
+  mutate(
+    Term = stringr::str_wrap(Term, width = 40),
+    direction = factor(direction,
+      levels = c("Early-associated", "Late-associated")
+    )
+  )
+
+p_holo_bp <- ggplot(
+  gsea_plot_holo_bp,
+  aes(
+    x = NES,
+    y = reorder_within(Term, NES, direction),
+    size = -log10(p.adjust)
+  )
+) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey70") +
+  geom_point(alpha = 0.8, color = "black") +
+  tidytext::scale_y_reordered() +
+  facet_wrap(~direction, scales = "free") +
+  scale_size(range = c(2, 6)) +
+  theme_classic(base_size = 13) +
+  theme(
+    strip.text = element_text(face = "bold", size = 12),
+    strip.background = element_rect(fill = "grey95", color = NA),
+    axis.text.y = element_text(size = 8),
+    panel.spacing = unit(1, "cm")
+  ) +  
+  labs(
+    x = "Normalized Enrichment Score (NES)",
+    y = "GO biological process",
+    size = "-log10(FDR)",
+    title = "Biological processes associated with gene expression trends\nacross holometabolic development"
+  )
+
+print(p_holo_bp)
+
+ggsave(
+  "/home/cluster_user/Magisterka/plots/holo_gsea_bp.png",
+  p_holo_bp,
+  width = 12,
+  height = 10,
+  dpi = 300
+)
+```
+
+### common GOs
+
+```{r}
+sig_nymph <- gsea_go_annotated %>%
+  select(ID, Term, direction, NES)
+
+sig_holo <- gsea_go_holo_annotated %>%
+  select(ID, Term, direction, NES)
+
+common_go <- intersect(sig_nymph$ID, sig_holo$ID)
+length(common_go)
+
+common_df <- sig_nymph %>%
+  filter(ID %in% common_go) %>%
+  left_join(sig_holo %>% select(ID, direction, NES), by = "ID", suffix = c("_nymph", "_holo"))
+
+head(common_df)
+
+```
+
+# DEG - separate for species
+
+based on Stage2 (no locusta)
+
+## deseq for stage vs all other stages
+
+```{r}
+run_stage_vs_all_deseq <- function(counts,
+                                   metadata,
+                                   stage_column = "Stage2",
+                                   min_count = 10,
+                                   padj_cutoff = 0.05,
+                                   lfc_cutoff = 0) {
+  #creating DESeqDataSet
+  dds <- DESeqDataSetFromMatrix(
+    countData = counts,
+    colData = metadata,
+    design = as.formula(paste0("~ ", stage_column))
+  )
+  
+  #low reads filtering
+  keep <- rowSums(counts(dds)) >= min_count
+  dds <- dds[keep, ]
+  
+  #run DESeq
+  dds <- DESeq(dds)
+  
+  stages <- levels(colData(dds)[[stage_column]])
+  deg_list <- list()
+  
+  #check contrast for each stage vs all other stages
+  for (st in stages) {
+    
+    dds_tmp <- dds
+    
+    dds_tmp$Stage_vs_All <- ifelse(
+      colData(dds_tmp)[[stage_column]] == st,
+      st,
+      "other"
+    )
+    
+    dds_tmp$Stage_vs_All <- factor(dds_tmp$Stage_vs_All)
+    design(dds_tmp) <- ~ Stage_vs_All
+    
+    dds_tmp <- DESeq(dds_tmp, quiet = TRUE)
+    
+    res <- results(dds_tmp,
+                   contrast = c("Stage_vs_All", st, "other"))
+    
+    deg_list[[paste0(st, "_vs_all")]] <-
+      subset(res,
+             padj < padj_cutoff &
+             log2FoldChange > lfc_cutoff)
+  }
+  
+  return(list(
+    dds = dds,
+    deg_stage2 = deg_list
+  ))
+}
+```
+
+## enrichement - GO
+
+```{r}
+run_stage_go_enrichment <- function(deg_list, eggnog_table) {
+  # build GO - gene mapping
+  go_species <- eggnog_table %>%
+    select(term = GOs, gene = query) %>%
+    filter(!is.na(term) & term != "-") %>%
+    separate_rows(term, sep = ",") %>%
+    distinct()
+
+  gene2GO <- split(go_species$term, go_species$gene)
+
+  background_genes <- unique(go_species$gene)
+
+  # FINAL OUTPUT: store full topGO objects
+  stage_topGO_objects <- list()
+
+  for (st in names(deg_list)) {
+
+    deg_genes <- rownames(deg_list[[st]])
+    deg_genes <- deg_genes[deg_genes %in% background_genes]
+
+    cat(st, ":", length(deg_genes), "genes used for enrichment\n")
+
+    # binary gene list
+    geneList <- factor(as.integer(background_genes %in% deg_genes))
+    names(geneList) <- background_genes
+
+    # topGO object
+    GOdata <- new("topGOdata",
+                  ontology = "BP",
+                  allGenes = geneList,
+                  annot = annFUN.gene2GO,
+                  gene2GO = gene2GO,
+                  nodeSize = 10)
+
+    # enrichment test
+    result <- runTest(GOdata,
+                      algorithm = "weight01",
+                      statistic = "fisher")
+
+    # store EVERYTHING needed for plotting graph
+    stage_topGO_objects[[st]] <- list(
+      GOdata = GOdata,
+      result = result,
+      geneList = geneList
+    )
+  }
+
+  return(stage_topGO_objects)
+}
+```
+
+## visualisation
+
+```{r}
+#maps each term to an ancestor within a level range (range worked better than a single level -> max_level if finds more)
+# level is approximated by walking up the GO graph through parents
+# 1 = root (GO:0008150) -> Biological Processes
+
+plot_stage_go_results <- function(stage_go_results,
+                                  deg_list,
+                                  top_n = 30,
+                                  min_level = 3,
+                                  max_level = 4,
+                                  output_dir = NULL,
+                                  prefix = "GO") {
+
+  # map short species id to labels
+  species_labels <- c(
+    "blattella" = "B. germanica",
+    "drosophila" = "D. melanogaster",
+    "harmonia" = "H. axyridis",
+    "locusta" = "L. migratoria",
+    "plutella" = "P. xylostella",
+    "drosophila2" = "D. melanogaster (set 2)"
+  )
+
+  #fallback to prefix if not found
+  species_name <- species_labels[[prefix]]
+  if (is.null(species_name)) species_name <- prefix
+
+  plots <- list()
+
+  # extract top_n most significant terms (by Fisher test) per stage
+  # from topGO GenTable output
+  extract_top_terms <- function(stage_name, obj) {
+    # skip invalid or empty objects
+    if (is.null(obj) || is.null(obj$GOdata) || is.null(obj$result)) return(NULL)
+    # extract GO table
+    gt <- tryCatch({
+      GenTable(
+        obj$GOdata,
+        Fisher = obj$result,
+        orderBy = "Fisher",
+        topNodes = top_n
+      )
+    }, error = function(e) NULL)
+    # NULL if no results
+    if (is.null(gt) || nrow(gt) == 0) return(NULL)
+    # dataframe with stage, GO ID, and transformed score
+    data.frame(
+      Stage = gsub("_vs_all", "", stage_name),
+      GO = gt$GO.ID,
+      score = -log10(pmax(as.numeric(gt$Fisher), 1e-300))
+    )
+  }
+
+  # extraction across all stages and combine results
+  top_terms <- mapply(
+    FUN = extract_top_terms,
+    stage_name = names(stage_go_results),
+    obj = stage_go_results,
+    SIMPLIFY = FALSE
+  ) %>% bind_rows()
+
+  # stop if no GO terms found
+  if (nrow(top_terms) == 0) {
+    warning("No GO terms found")
+    return(plots)
+  }
+
+  # convert GO ID to term name
+  safe_term <- function(go) {
+    if (is.na(go)) return(NA)
+    term <- tryCatch(Term(GOTERM[[go]]), error = function(e) NA)
+    ifelse(is.na(term), go, term)
+  }
+
+  # iteratively traverse parent relationships -> estimate GO in set levels
+  # find depth in the ontology tree (it can take a lot of time)
+  get_go_level_fast <- function(go) {
+    if (go == "GO:0008150") return(1)
+    level <- 1
+    current <- go
+
+    repeat {
+      parents <- GOBPPARENTS[[current]]
+      if (is.null(parents) || all(is.na(parents))) break
+      parents <- parents[!is.na(parents)]
+      if (length(parents) == 0) break
+      current <- parents[1]
+      level <- level + 1
+      # Safety break to avoid loooong loops
+      if (level > 100) break
+    }
+    return(level)
+  }
+
+  # map GO term to ancestor within the level range (closest to max_level if more)
+  map_to_level <- function(go, min_level, max_level) {
+    ancestors <- c(go, unlist(GOBPANCESTOR[[go]]))
+    ancestors <- unique(ancestors[grepl("^GO:", ancestors)])
+    
+    if (length(ancestors) == 0) return(NA)
+    
+    levels <- sapply(ancestors, get_go_level_fast)
+    valid <- which(levels >= min_level & levels <= max_level)
+    if (length(valid) == 0) return(NA)
+
+    return(ancestors[valid][which.max(levels[valid])])
+  }
+
+  # get term names
+  top_terms$MappedGO <- sapply(top_terms$GO, map_to_level,
+                               min_level = min_level,
+                               max_level = max_level)
+
+  top_terms$MappedName <- sapply(top_terms$MappedGO, safe_term)
+
+  # collapse redundant GOs in a stage <- keep max score per mapped term
+  collapsed_df <- top_terms %>%
+    filter(!is.na(MappedName)) %>%
+    group_by(Stage, MappedName) %>%
+    summarise(score = max(score), .groups = "drop")
+
+  # Select top_n global most significant GOs
+  global_terms <- collapsed_df %>%
+    group_by(MappedName) %>%
+    summarise(score = max(score), .groups = "drop") %>%
+    slice_max(order_by = score, n = top_n) %>%
+    pull(MappedName)
+
+  # get scores for selected GOs for all stages
+  lookup_scores <- function(stage_name, obj, go_terms) {
+
+    res <- tryCatch(score(obj$result), error = function(e) NULL)
+    if (is.null(res)) return(NULL)
+
+    data.frame(
+      Stage = stage_name,
+      GO = go_terms,
+      score = -log10(pmax(res[go_terms], 1e-300))
+    )
+  }
+
+  # score search for each stage
+  full_scores <- lapply(names(stage_go_results), function(stage) {
+    obj <- stage_go_results[[stage]]
+
+    selected_go <- top_terms %>%
+      filter(MappedName %in% global_terms) %>%
+      pull(GO) %>%
+      unique()
+
+    lookup_scores(gsub("_vs_all", "", stage), obj, selected_go)
+  }) %>% bind_rows()
+
+  # Map GO IDs again to ensure consistency
+  full_scores$MappedGO <- sapply(full_scores$GO, map_to_level,
+                                min_level = min_level,
+                                max_level = max_level)
+
+  full_scores$MappedName <- sapply(full_scores$MappedGO, safe_term)
+
+  # heatmap matrix -> fill missing with zero
+  heatmap_df <- full_scores %>%
+    filter(MappedName %in% global_terms) %>%
+    group_by(Stage, MappedName) %>%
+    summarise(score = max(score, na.rm = TRUE), .groups = "drop") %>%
+    tidyr::complete(Stage, MappedName, fill = list(score = 0))
+
+  # heatmap of GO enrichment
+  p_heatmap <- ggplot(
+    heatmap_df,
+    aes(
+      x = Stage,
+      y = reorder(str_wrap(MappedName, 40), score),
+      fill = score
+    )
+  ) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "white", high = "#E66101") +
+    theme_minimal() +
+    labs(
+      title = paste("GO Biological Process –", species_name),
+      x = "Stage",
+      y = "",
+      fill = "-log10(p)"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      axis.text.y = element_text(size = 7),
+      panel.grid = element_blank()
+    ) +
+    scale_x_discrete(expand = c(0, 0))
+
+  print(p_heatmap)
+  plots$heatmap <- p_heatmap
+
+  # save plot
+  if (!is.null(output_dir)) {
+    ggsave(file.path(output_dir,
+                     paste0(prefix, "_GO_heatmap.png")),
+           p_heatmap, width = 8, height = 6)
+  }
+  return(plots)
+}
+```
+
+## run
+
+```{r}
+run_stage_analysis <- function(counts,
+                               metadata,
+                               eggnog_table,
+                               stage_column = "Stage2") {
+  # 1. DESEQ ANALYSIS
+  res <- run_stage_vs_all_deseq(
+    counts = counts,
+    metadata = metadata,
+    stage_column = stage_column
+  )
+
+  # extract stage-specific DEGs
+  deg_stage2 <- res$deg_stage2
+
+  # optionally keep dds (commented out to save memory)
+  # dds <- res$dds
+
+  # print number of DEGs per stage
+  cat("\nDEGs per stage:\n")
+  print(sapply(deg_stage2, nrow))
+
+  # 2. OVERLAP MATRIX
+  stage_gene_lists <- lapply(deg_stage2, rownames)
+
+  overlap_matrix <- outer(
+    names(stage_gene_lists),
+    names(stage_gene_lists),
+    Vectorize(function(x, y)
+      length(intersect(stage_gene_lists[[x]], stage_gene_lists[[y]])))
+  )
+
+  cat("\nOverlap matrix:\n")
+  print(overlap_matrix)
+
+  # 3. GO ENRICHMENT
+  go_results <- run_stage_go_enrichment(
+    deg_list = deg_stage2,
+    eggnog_table = eggnog_table
+  )
+
+  return(list(
+    deg_stage2 = deg_stage2,
+    go_results = go_results
+  ))
+}
+```
+
+## harmonia
+
+```{r}
+# load count matrix and metadata
+harmonia_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_counts.rds")
+harmonia_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_metadata.rds")
+
+# load full metadata table
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv",
+                     row.names = 1,
+                     header = TRUE,
+                     sep = ",")
+
+# reorder metadata rows to match count matrix columns
+harmonia_metadata <- metadata[colnames(harmonia_counts), ]
+
+harmonia <- run_stage_analysis(
+  counts = harmonia_counts,
+  metadata = harmonia_metadata,
+  eggnog_table = eggnog_harmonia
+)
+
+print(harmonia$go_results[[1]]$result)
+print(harmonia$go_results[[2]]$result)
+print(harmonia$go_results[[3]]$result)
+
+pdf("GO_graph_harmonia.pdf")
+showSigOfNodes(
+  harmonia$go_results[[1]]$GOdata,
+  score(harmonia$go_results[[1]]$result),
+  firstSigNodes = 5,
+  useInfo = "def"
+)
+dev.off()
+```
+
+plot
+
+```{r}
+plot_stage_go_results(
+  stage_go_results = harmonia$go_results,
+  deg_list = harmonia$deg_stage2,
+  top_n = 30,
+  min_level = 3,
+  max_level = 4,
+  output_dir = "/home/cluster_user/Magisterka/plots/",
+  prefix = "harmonia"
+)
+```
+
+## plutella
+
+```{r}
+plutella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_counts.rds")
+plutella_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_metadata.rds")
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ",") 
+
+plutella_metadata <- metadata[colnames(plutella_counts), ]
+
+plutella <- run_stage_analysis(
+  counts = plutella_counts,
+  metadata = plutella_metadata,
+  eggnog_table = eggnog_plutella
+)
+```
+
+```{r}
+plot_stage_go_results(
+  stage_go_results = plutella$go_results,
+  deg_list = plutella$deg_stage2,
+  top_n = 30,
+  min_level = 3,
+  max_level = 4,
+  output_dir = "/home/cluster_user/Magisterka/plots/",
+  prefix = "plutella"
+)
+```
+
+## 1 drosophila
+
+```{r}
+drosophila_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_counts.rds")
+drosophila_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_metadata.rds")
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ",") 
+
+drosophila_metadata <- metadata[colnames(drosophila_counts), ]
+
+drosophila <- run_stage_analysis(
+  counts = drosophila_counts,
+  metadata = drosophila_metadata,
+  eggnog_table = eggnog_drosophila
+)
+```
+
+```{r}
+plot_stage_go_results(
+  stage_go_results = drosophila$go_results,
+  deg_list = drosophila$deg_stage2,
+  top_n = 30,
+  min_level = 3,
+  max_level = 4,
+  output_dir = "/home/cluster_user/Magisterka/plots/",
+  prefix = "drosophila"
+)
+```
+
+## 2 drosophila
+
+```{r}
+drosophila2_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_counts.rds")
+drosophila2_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_metadata.rds")
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ",") 
+
+drosophila2_metadata <- metadata[colnames(drosophila2_counts), ]
+
+drosophila2 <- run_stage_analysis(
+  counts = drosophila2_counts,
+  metadata = drosophila2_metadata,
+  eggnog_table = eggnog_drosophila
+)
+```
+
+```{r}
+plot_stage_go_results(
+  stage_go_results = drosophila2$go_results,
+  deg_list = drosophila2$deg_stage2,
+  top_n = 30,
+  min_level = 3,
+  max_level = 4,
+  output_dir = "/home/cluster_user/Magisterka/plots/",
+  prefix = "drosophila2"
+)
+```
+
+## blattella
+
+```{r}
+blattella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_counts.rds")
+blattella_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_metadata.rds")
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ",") 
+
+blattella_metadata <- metadata[colnames(blattella_counts), ]
+
+blattella <- run_stage_analysis(
+  counts = blattella_counts,
+  metadata = blattella_metadata,
+  eggnog_table = eggnog_blattella
+)
+```
+
+```{r}
+plot_stage_go_results(
+  stage_go_results = blattella$go_results,
+  deg_list = blattella$deg_stage2,
+  top_n = 30,
+  min_level = 3,
+  max_level = 4,
+  output_dir = "/home/cluster_user/Magisterka/plots/",
+  prefix = "blattella"
+)
+
+## this hemimetabolic embryo has a lot of similar processes to larvae
+## nymphs has cuticle which was in pupa
+```
+
+## compare
+
+```{r}
+# function converting gene IDs to orthogroup IDs for a given species
+genes_to_og <- function(genes, gene2og, species_name) {
+  gene2og %>%
+    filter(Species == species_name,
+           gene_id %in% genes) %>%
+    pull(og) %>%
+    unique()
+}
+
+
+# convert stage-specific genes to orthogroups (Harmonia)
+harmonia_stage_og <- lapply(
+  harmonia$deg_stage2,
+  function(df) genes_to_og(rownames(df), gene2og, "harmonia")
+)
+
+# rename stages and remove "_vs_all"
+names(harmonia_stage_og) <- paste0("Harmonia_", gsub("_vs_all", "", names(harmonia_stage_og)))
+
+
+# convert stage-specific genes to orthogroups (Plutella)
+plutella_stage_og <- lapply(
+  plutella$deg_stage2,
+  function(df) genes_to_og(rownames(df), gene2og, "plutella")
+)
+
+names(plutella_stage_og) <- paste0("Plutella_", gsub("_vs_all", "", names(plutella_stage_og)))
+
+
+# convert stage-specific genes to orthogroups (Drosophila dataset 1)
+drosophila_stage_og <- lapply(
+  drosophila$deg_stage2,
+  function(df) genes_to_og(rownames(df), gene2og, "drosophila")
+)
+
+names(drosophila_stage_og) <- paste0("Drosophila_", gsub("_vs_all", "", names(drosophila_stage_og)))
+
+
+# convert stage-specific genes to orthogroups (Drosophila dataset 2)
+drosophila2_stage_og <- lapply(
+  drosophila2$deg_stage2,
+  function(df) genes_to_og(rownames(df), gene2og, "drosophila")
+)
+
+names(drosophila2_stage_og) <- paste0("Drosophila2_", gsub("_vs_all", "", names(drosophila2_stage_og)))
+
+
+# convert stage-specific genes to orthogroups (Blattella)
+blattella_stage_og <- lapply(
+  blattella$deg_stage2,
+  function(df) genes_to_og(rownames(df), gene2og, "blattella")
+)
+
+names(blattella_stage_og) <- paste0("Blattella_", gsub("_vs_all", "", names(blattella_stage_og)))
+
+
+# combine orthogroup sets from all species
+stage_gene_sets <- c(
+  harmonia_stage_og,
+  plutella_stage_og,
+  drosophila_stage_og,
+  drosophila2_stage_og,
+  blattella_stage_og
+)
+
+# ensure all orthogroups exist in gene2og table
+stage_gene_sets <- lapply(stage_gene_sets, function(x) intersect(x, gene2og$og))
+
+# check number of orthogroups per stage
+sapply(stage_gene_sets, length)
+```
+
+## Jaccard similarity
+
+```{r}
+#shared genes / total unique genes across both stages
+#-> mitigates bias from comparing groups with many DEGs vs comparing groups with less DEGs
+#they may have similar overlap but it's different ratio
+#because it's not all genes (orthogroups) but only DEGs orthogroups
+
+# function calculating Jaccard similarity between two sets
+jaccard <- function(a, b) {
+  length(intersect(a, b)) / length(union(a, b))
+}
+
+sets <- names(stage_gene_sets)
+
+# initialize similarity matrix
+mat <- matrix(0, length(sets), length(sets))
+rownames(mat) <- sets
+colnames(mat) <- sets
+
+
+# compute pairwise Jaccard similarity between stages
+for(i in seq_along(sets)){
+  for(j in seq_along(sets)){
+    mat[i,j] <- jaccard(
+      stage_gene_sets[[sets[i]]],
+      stage_gene_sets[[sets[j]]]
+    )
+  }
+}
+
+# remove self-comparisons
+diag(mat) <- NA
+
+# define color scale for heatmap
+breaks <- seq(0, 0.4, length.out = 100)
+
+colors <- colorRampPalette(
+  c("white", "#FDB863", "#E66101", "#B2182B")
+)(99)
+
+
+# plot heatmap of stage overlap
+pheatmap(
+  mat,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  color = colors,
+  breaks = breaks,
+  angle_col = 45,
+  border_color = NA,
+  na_col = "grey90",
+  main = "Jaccard similarity of stage-specific DEGs"
+)
+
+
+# save heatmap to file
+png("/home/cluster_user/Magisterka/plots/DEG_overlap_heatmap.png",
+    width = 2200,
+    height = 1800,
+    res = 300)
+
+pheatmap(
+  mat,
+  clustering_distance_rows = "euclidean",
+  clustering_distance_cols = "euclidean",
+  color = colors,
+  breaks = breaks,
+  angle_col = 45,
+  border_color = NA,
+  na_col = "grey90",
+  main = "Jaccard similarity of stage-specific DEGs",
+  fontsize_row = 7,
+  fontsize_col = 7
+)
+
+dev.off()
+```

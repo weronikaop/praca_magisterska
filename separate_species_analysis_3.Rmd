@@ -1,0 +1,1419 @@
+---
+title: "3. analysis of separate species"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc_float: true
+    toc-depth: 6
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## deseq2
+
+Expresion levels -\> for each stage -\> then contrast between each pair of stages -\> then
+
+choose for each pair the differentially expressed (also a list of tables) -\> a list (each pair) of lists of names -\> then in GO analysis i need a 2D list so i make a list of unique DEGs between pairs
+
+```{r}
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(ggrepel)
+library(princurve)
+library(limma)
+library(sva)
+```
+
+### locusta
+
+```{r}
+#load count matrix and metadata
+locusta_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/locusta_counts.rds")
+locusta_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/locusta_metadata.rds")
+
+###DESeq
+
+locusta_dds <- DESeqDataSetFromMatrix(countData = locusta_counts,
+                              colData = locusta_metadata,
+                              design= ~Stage)
+#Run DESeq2 to estimate size factors, dispersions, and fit the model
+locusta_dds <- DESeq(locusta_dds)
+
+head(results(locusta_dds, tidy=TRUE))
+summary(results(locusta_dds))
+```
+
+```{r}
+#i dont compare 1st with 1st etc because its an error in names then
+stages <- levels(locusta_dds$Stage)
+
+#pairwise differential expression analysis between all unique stage pairs
+locusta_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    locusta_comparisons[[name]] <- results(locusta_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+
+```
+
+```{r}
+#significantly differentially expressed genes (DEGs) for each comparison
+locusta_deg <- lapply(locusta_comparisons, function(results) subset(results, padj < 0.05))
+
+#gene IDs of DEGs for each comparison
+locusta_genes <- lapply(locusta_deg, rownames)
+
+#vector of all unique DEGs across all comparisons
+locusta_genes_uniq <- unique(unlist(locusta_genes))
+
+```
+
+#### pca
+
+```{r}
+#variance stabilizing transformation for downstream visualization
+locusta_vst <- vst(locusta_dds, blind = FALSE)
+
+#pca with grouping by sample name
+pcaData <- plotPCA(locusta_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(locusta_vst)$Stage
+
+#plot pca, color by stage
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("PCA of gene expression in " * italic("L. migratoria"))) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_locusta.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+#redo stages (in case i run only this chunk and before other species)
+stages <- levels(locusta_dds$Stage)
+
+#creating matrix, filled with zeroes
+locusta_matrix <- matrix(0, nrow = length(stages), ncol = length(stages))
+rownames(locusta_matrix) <- stages
+colnames(locusta_matrix) <- stages
+
+#fill matrix with deg counts
+for (name in names(locusta_deg)) {
+  #for each pair of stages
+  degs <- locusta_deg[[name]]
+  comps <- unlist(strsplit(name, "_vs_"))
+  group1 <- comps[1]
+  group2 <- comps[2]
+  
+  n_deg <- sum(degs$padj < 0.05, na.rm = TRUE)
+  
+  #writing in matrix, in both orders
+  locusta_matrix[group1, group2] <- n_deg
+  locusta_matrix[group2, group1] <- n_deg
+}
+
+deg_colors <- colorRampPalette(RColorBrewer::brewer.pal(n = 9, name = "Greens"))(100)
+
+#heatmap of deg counts between stages
+png("/home/cluster_user/Magisterka/plots/pheatmap_locusta.png",
+    width = 2400, height = 1800, res = 300)
+
+pheatmap(locusta_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in L. migratoria",
+         color = deg_colors)
+
+dev.off()
+
+pheatmap(locusta_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in L. migratoria",
+         color = deg_colors)
+```
+
+#### pseudotime
+
+```{r}
+print(percentVar)
+
+#from pca matrix, 2 main components
+pc_mat_all <- as.matrix(pcaData[, paste0("PC", 1:2)])
+rownames(pc_mat_all) <- pcaData$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+#standardise
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData$Pseudotime <- lambda_norm_all
+
+#check if pseudotime is according to the stages order
+stages_order <- c("Nymph 1", "Nymph 2", "Nymph 3", "Nymph 4", "Nymph 5")
+
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+pcaData$Stage <- droplevels(pcaData$Stage)
+
+#check correlation with the stages order and flip if needed
+cor_test <- cor(as.numeric(factor(pcaData$Stage, levels = stages_order)), pcaData$Pseudotime, use = "complete.obs")
+print(cor_test)
+if (cor_test < 0) {
+  pcaData$Pseudotime <- 1 - pcaData$Pseudotime
+}
+
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:2)
+#sort point
+curve_line <- curve_line[order(pcaData$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData, aes(PC1, PC2, shape = Stage, color = Pseudotime, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_shape_manual(values = c(0, 1, 2, 3, 4, 5, 6, 8)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = expression("Pseudotime on "* italic("L. migratoria") * " gene expression PCA"),
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_locusta.png",
+        p_curve, width = 8, height = 6, dpi = 300)
+```
+
+### harmonia
+
+```{r}
+harmonia_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_counts.rds")
+harmonia_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_metadata.rds")
+
+###DESeq
+
+harmonia_dds <- DESeqDataSetFromMatrix(countData = harmonia_counts,
+                              colData = harmonia_metadata,
+                              design= ~Stage)
+#estimate factors
+harmonia_dds <- DESeq(harmonia_dds)
+
+head(results(harmonia_dds, tidy=TRUE))
+summary(results(harmonia_dds))
+```
+
+```{r}
+stages <- levels(harmonia_dds$Stage)
+
+harmonia_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    harmonia_comparisons[[name]] <- results(harmonia_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+
+#diferential genes
+harmonia_deg <- lapply(harmonia_comparisons, function(results) subset(results, padj < 0.05))
+
+#names of the deg
+harmonia_genes <- lapply(harmonia_deg, rownames)
+
+
+#all unique DEGs
+harmonia_genes_uniq <- unique(unlist(harmonia_genes))
+```
+
+#### pca
+
+```{r}
+harmonia_vst <- vst(harmonia_dds, blind = FALSE)
+
+pcaData <- plotPCA(harmonia_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(harmonia_vst)$Stage
+
+
+stages_order <- c(
+  "Larva 1", "Larva 2", "Larva 3", "Larva 4",
+  "Prepupa 4h", "Prepupa 8h", "Prepupa 12h",
+  "Prepupa 16h", "Prepupa 20h",
+  "Pupa d1", "Pupa d2", "Pupa d3", "Pupa d4"
+)
+
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("PCA of gene expression in " * italic("H. axyridis"))) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_harmonia.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+stages <- levels(harmonia_dds$Stage)
+
+#creating matrix, filled with zeroes
+harmonia_matrix <- matrix(0, nrow = length(stages), ncol = length(stages))
+rownames(harmonia_matrix) <- stages
+colnames(harmonia_matrix) <- stages
+
+for (name in names(harmonia_deg)) {
+  #for each pair of stages
+  degs <- harmonia_deg[[name]]
+  comps <- unlist(strsplit(name, "_vs_"))
+  group1 <- comps[1]
+  group2 <- comps[2]
+  
+  n_deg <- sum(degs$padj < 0.05, na.rm = TRUE)
+  
+  #writing in matrix
+  harmonia_matrix[group1, group2] <- n_deg
+  harmonia_matrix[group2, group1] <- n_deg
+}
+
+png("/home/cluster_user/Magisterka/plots/pheatmap_harmonia.png",
+    width = 2400, height = 1800, res = 300)
+
+pheatmap(harmonia_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in H. axyridis",
+         color = deg_colors)
+
+dev.off()
+
+pheatmap(harmonia_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in H. axyridis",
+         color = deg_colors)
+```
+
+#### pseudotime
+
+```{r}
+print(percentVar)
+
+#from pca matrix, 2 main components
+pc_mat_all <- as.matrix(pcaData[, paste0("PC", 1:2)])
+rownames(pc_mat_all) <- pcaData$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+#standardise
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData$Pseudotime <- lambda_norm_all
+
+#check if pseudotime is according to the stages order
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+pcaData$Stage <- droplevels(pcaData$Stage)
+
+#check correlation with the stages order and flip if needed
+cor_test <- cor(as.numeric(factor(pcaData$Stage, levels = stages_order)), pcaData$Pseudotime, use = "complete.obs")
+print(cor_test)
+if (cor_test < 0) {
+  pcaData$Pseudotime <- 1 - pcaData$Pseudotime
+}
+
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:2)
+#sort point
+curve_line <- curve_line[order(pcaData$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData, aes(PC1, PC2, shape = Stage, color = Pseudotime, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_shape_manual(values = c(0:13)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = expression("Pseudotime on "* italic("H. axyridis") * " gene expression PCA"),
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_harmonia.png",
+        p_curve, width = 8, height = 6, dpi = 300)
+```
+
+### plutella
+
+```{r}
+plutella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_counts.rds")
+plutella_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_metadata.rds")
+
+###DESeq
+plutella_dds <- DESeqDataSetFromMatrix(countData = plutella_counts,
+                              colData = plutella_metadata,
+                              design= ~Stage)
+#estimate factors
+plutella_dds <- DESeq(plutella_dds)
+
+```
+
+```{r}
+stages <- levels(plutella_dds$Stage)
+
+plutella_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    plutella_comparisons[[name]] <- results(plutella_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+
+#diferential genes
+plutella_deg <- lapply(plutella_comparisons, function(results) subset(results, padj < 0.05))
+
+#names of the deg
+plutella_genes <- lapply(plutella_deg, rownames)
+
+#all unique DEGs
+plutella_genes_uniq <- unique(unlist(plutella_genes))
+
+```
+
+#### pca
+
+```{r}
+plutella_vst <- vst(plutella_dds, blind = FALSE)
+
+pcaData <- plotPCA(plutella_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(plutella_vst)$Stage
+
+
+stages_order <- c(
+  "Larva 1", "Larva 2", "Larva 3", "Larva 4", "Prepupa 4h", "Prepupa 8h","Prepupa 12h","Prepupa 16h", "Pupa d1", "Pupa d2", "Pupa d3"
+)
+
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("PCA of gene expression in " * italic("P. xylostella"))) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_plutella.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+stages <- levels(plutella_dds$Stage)
+
+#creating matrix, filled with zeroes
+plutella_matrix <- matrix(0, nrow = length(stages), ncol = length(stages))
+rownames(plutella_matrix) <- stages
+colnames(plutella_matrix) <- stages
+
+for (name in names(plutella_deg)) {
+  #for each pair of stages
+  degs <- plutella_deg[[name]]
+  comps <- unlist(strsplit(name, "_vs_"))
+  group1 <- comps[1]
+  group2 <- comps[2]
+  
+  n_deg <- sum(degs$padj < 0.05, na.rm = TRUE)
+  
+  #writing in matrix
+  plutella_matrix[group1, group2] <- n_deg
+  plutella_matrix[group2, group1] <- n_deg
+}
+
+png("/home/cluster_user/Magisterka/plots/pheatmap_plutella.png",
+    width = 2400, height = 1800, res = 300)
+
+pheatmap(plutella_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in P. xylostella",
+         color = deg_colors)
+
+dev.off()
+
+pheatmap(plutella_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in P. xylostella",
+         color = deg_colors)
+```
+
+#### pseudotime
+
+```{r}
+print(percentVar)
+
+#from pca matrix, 2 main components
+pc_mat_all <- as.matrix(pcaData[, paste0("PC", 1:2)])
+rownames(pc_mat_all) <- pcaData$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+#standardise
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData$Pseudotime <- lambda_norm_all
+
+#check if pseudotime is according to the stages order
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+pcaData$Stage <- droplevels(pcaData$Stage)
+
+#check correlation with the stages order and flip if needed
+cor_test <- cor(as.numeric(factor(pcaData$Stage, levels = stages_order)), pcaData$Pseudotime, use = "complete.obs")
+print(cor_test)
+if (cor_test < 0) {
+  pcaData$Pseudotime <- 1 - pcaData$Pseudotime
+}
+
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:2)
+#sort point
+curve_line <- curve_line[order(pcaData$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData, aes(PC1, PC2, shape = Stage, color = Pseudotime, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_shape_manual(values = c(0:13)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = expression("Pseudotime on "* italic("P. xylostella") * " gene expression PCA"),
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_plutella.png",
+        p_curve, width = 8, height = 6, dpi = 300)
+```
+
+### drosophila
+
+```{r}
+drosophila_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_counts.rds")
+drosophila_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_metadata.rds")
+
+###DESeq
+drosophila_dds <- DESeqDataSetFromMatrix(countData = drosophila_counts,
+                              colData = drosophila_metadata,
+                              design= ~Stage)
+#estimate factors
+drosophila_dds <- DESeq(drosophila_dds)
+```
+
+```{r}
+stages <- levels(drosophila_dds$Stage)
+
+drosophila_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    drosophila_comparisons[[name]] <- results(drosophila_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+
+#diferential genes
+drosophila_deg <- lapply(drosophila_comparisons, function(results) subset(results, padj < 0.05))
+
+#names of the deg
+drosophila_genes <- lapply(drosophila_deg, rownames)
+
+#all unique DEGs
+drosophila_genes_uniq <- unique(unlist(drosophila_genes))
+
+```
+
+#### pca
+
+```{r}
+drosophila_vst <- vst(drosophila_dds, blind = FALSE)
+
+pcaData <- plotPCA(drosophila_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(drosophila_vst)$Stage
+
+
+stages_order <- c(
+  "Larva 1", "Larva 2", "Larva 3","Larva 3 clear guts","White prepupa","White prepupa +12h","White prepupa +24h","Pupa WPP+2d","Pupa WPP+3d","Pupa WPP+4d"
+)
+
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("PCA of gene expression in " * italic("D. melanogaster"))) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_drosophila.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+stages <- levels(drosophila_dds$Stage)
+
+#creating matrix, filled with zeroes
+drosophila_matrix <- matrix(0, nrow = length(stages), ncol = length(stages))
+rownames(drosophila_matrix) <- stages
+colnames(drosophila_matrix) <- stages
+
+for (name in names(drosophila_deg)) {
+  #for each pair of stages
+  degs <- drosophila_deg[[name]]
+  comps <- unlist(strsplit(name, "_vs_"))
+  group1 <- comps[1]
+  group2 <- comps[2]
+  
+  n_deg <- sum(degs$padj < 0.05, na.rm = TRUE)
+  
+  #writing in matrix
+  drosophila_matrix[group1, group2] <- n_deg
+  drosophila_matrix[group2, group1] <- n_deg
+}
+
+png("/home/cluster_user/Magisterka/plots/pheatmap_drosophila.png",
+    width = 2400, height = 1800, res = 300)
+
+pheatmap(drosophila_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "     Number of DEGs between stages in D. melanogaster",
+         color = deg_colors)
+
+dev.off()
+
+pheatmap(drosophila_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "     Number of DEGs between stages in D. melanogaster",
+         color = deg_colors)
+```
+
+#### pseudotime
+
+```{r}
+print(percentVar)
+
+#from pca matrix, 2 main components
+pc_mat_all <- as.matrix(pcaData[, paste0("PC", 1:2)])
+rownames(pc_mat_all) <- pcaData$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+#standardise
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData$Pseudotime <- lambda_norm_all
+
+#check if pseudotime is according to the stages order
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+pcaData$Stage <- droplevels(pcaData$Stage)
+
+#check correlation with the stages order and flip if needed
+cor_test <- cor(as.numeric(factor(pcaData$Stage, levels = stages_order)), pcaData$Pseudotime, use = "complete.obs")
+print(cor_test)
+if (cor_test < 0) {
+  pcaData$Pseudotime <- 1 - pcaData$Pseudotime
+}
+
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:2)
+#sort point
+curve_line <- curve_line[order(pcaData$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData, aes(PC1, PC2, shape = Stage, color = Pseudotime, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_shape_manual(values = c(0:13)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = expression("Pseudotime on "* italic("D. melanogaster") * " gene expression PCA"),
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_drosophila.png",
+        p_curve, width = 8, height = 6, dpi = 300)
+```
+
+### blattella
+
+```{r}
+blattella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_counts.rds")
+blattella_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_metadata.rds")
+
+###DESeq
+blattella_dds <- DESeqDataSetFromMatrix(countData = blattella_counts,
+                              colData = blattella_metadata,
+                              design= ~Stage)
+#estimate factors
+blattella_dds <- DESeq(blattella_dds)
+```
+
+```{r}
+stages <- levels(blattella_dds$Stage)
+
+blattella_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    blattella_comparisons[[name]] <- results(blattella_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+
+#diferential genes
+blattella_deg <- lapply(blattella_comparisons, function(results) subset(results, padj < 0.05))
+
+#names of the deg
+blattella_genes <- lapply(blattella_deg, rownames)
+
+#all unique DEGs
+blattella_genes_uniq <- unique(unlist(blattella_genes))
+
+print(stages)
+```
+
+#### pca
+
+```{r}
+blattella_vst <- vst(blattella_dds, blind = FALSE)
+
+pcaData <- plotPCA(blattella_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(blattella_vst)$Stage
+
+
+stages_order <- c(
+  "Non-fec. egg", "Embryo d0", "Embryo d1","Embryo d2","Embryo d6","Embryo d13", "Nymph 1", "Nymph 3", "Nymph 5", "Nymph 6","Adult female"
+)
+
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("PCA of gene expression in " * italic("B. germanica"))) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_blattella.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+stages <- levels(blattella_dds$Stage)
+
+#creating matrix, filled with zeroes
+blattella_matrix <- matrix(0, nrow = length(stages), ncol = length(stages))
+rownames(blattella_matrix) <- stages
+colnames(blattella_matrix) <- stages
+
+for (name in names(blattella_deg)) {
+  #for each pair of stages
+  degs <- blattella_deg[[name]]
+  comps <- unlist(strsplit(name, "_vs_"))
+  group1 <- comps[1]
+  group2 <- comps[2]
+  
+  n_deg <- sum(degs$padj < 0.05, na.rm = TRUE)
+  
+  #writing in matrix
+  blattella_matrix[group1, group2] <- n_deg
+  blattella_matrix[group2, group1] <- n_deg
+}
+
+png("/home/cluster_user/Magisterka/plots/pheatmap_blattella.png",
+    width = 2400, height = 1800, res = 300)
+
+pheatmap(blattella_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in B. germanica",
+         color = deg_colors)
+
+dev.off()
+
+pheatmap(blattella_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "Number of DEGs between stages in B. germanica",
+         color = deg_colors)
+```
+
+#### pseudotime
+
+```{r}
+print(percentVar)
+
+#from pca matrix, 2 main components
+pc_mat_all <- as.matrix(pcaData[, paste0("PC", 1:2)])
+rownames(pc_mat_all) <- pcaData$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+#standardise
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData$Pseudotime <- lambda_norm_all
+
+#check if pseudotime is according to the stages order
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+pcaData$Stage <- droplevels(pcaData$Stage)
+
+#check correlation with the stages order and flip if needed
+cor_test <- cor(as.numeric(factor(pcaData$Stage, levels = stages_order)), pcaData$Pseudotime, use = "complete.obs")
+print(cor_test)
+if (cor_test < 0) {
+  pcaData$Pseudotime <- 1 - pcaData$Pseudotime
+}
+
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:2)
+#sort point
+curve_line <- curve_line[order(pcaData$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData, aes(PC1, PC2, shape = Stage, color = Pseudotime, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_shape_manual(values = c(0:13)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = expression("Pseudotime on "* italic("B. germanica") * " gene expression PCA"),
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_blattella.png",
+        p_curve, width = 8, height = 6, dpi = 300)
+```
+
+### drosophila2
+
+```{r}
+drosophila2_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_counts.rds")
+drosophila2_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_metadata.rds")
+
+###DESeq
+
+drosophila2_dds <- DESeqDataSetFromMatrix(countData = drosophila2_counts,
+                              colData = drosophila2_metadata,
+                              design= ~Stage)
+#estimate factors
+drosophila2_dds <- DESeq(drosophila2_dds)
+```
+
+```{r}
+stages <- levels(drosophila2_dds$Stage)
+
+drosophila2_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    drosophila2_comparisons[[name]] <- results(drosophila2_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+
+#diferential genes
+drosophila2_deg <- lapply(drosophila2_comparisons, function(results) subset(results, padj < 0.05))
+
+#names of the deg
+drosophila2_genes <- lapply(drosophila2_deg, rownames)
+
+#all unique DEGs
+drosophila2_genes_uniq <- unique(unlist(drosophila2_genes))
+
+print(stages)
+```
+
+#### pca
+
+```{r}
+drosophila2_vst <- vst(drosophila2_dds, blind = FALSE)
+
+pcaData <- plotPCA(drosophila2_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(drosophila2_vst)$Stage
+
+
+stages_order <- c(
+  "Embryo 0-4h","Embryo 4-8h","Embryo 8-12h","Embryo 12-16h","Embryo 16-20h","Embryo 20-24h","Larva 1","Larva 2","Larva 3","Pupa","Adult Female","Adult Male"
+)
+
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("PCA of gene expression in " * italic("D. melanogaster") * " (dataset 2)")) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_drosophila2.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+deg_colors <- colorRampPalette(RColorBrewer::brewer.pal(n = 9, name = "Greens"))(100)
+stages <- levels(drosophila2_dds$Stage)
+
+#creating matrix, filled with zeroes
+drosophila2_matrix <- matrix(0, nrow = length(stages), ncol = length(stages))
+rownames(drosophila2_matrix) <- stages
+colnames(drosophila2_matrix) <- stages
+
+for (name in names(drosophila2_deg)) {
+  #for each pair of stages
+  degs <- drosophila2_deg[[name]]
+  comps <- unlist(strsplit(name, "_vs_"))
+  group1 <- comps[1]
+  group2 <- comps[2]
+  
+  n_deg <- sum(degs$padj < 0.05, na.rm = TRUE)
+  
+  #writing in matrix
+  drosophila2_matrix[group1, group2] <- n_deg
+  drosophila2_matrix[group2, group1] <- n_deg
+}
+
+png("/home/cluster_user/Magisterka/plots/pheatmap_drosophila2.png",
+    width = 2400, height = 1800, res = 300)
+
+pheatmap(drosophila2_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "       Number of DEGs between stages in D. melanogaster (dataset 2)",
+         color = deg_colors)
+
+dev.off()
+
+pheatmap(drosophila2_matrix,
+         fontsize_row = 12,
+         fontsize_col = 12,
+         angle_col = 45,       
+         cellwidth = 30,       
+         cellheight = 20,
+         main = "       Number of DEGs between stages in D. melanogaster (dataset 2)",
+         color = deg_colors)
+```
+
+#### pseudotime
+
+```{r}
+print(percentVar)
+
+#from pca matrix, 2 main components
+pc_mat_all <- as.matrix(pcaData[, paste0("PC", 1:2)])
+rownames(pc_mat_all) <- pcaData$Sample2
+
+#developmental curve
+pc_curve_all <- principal_curve(pc_mat_all)
+
+#pseudotime
+lambda_all <- pc_curve_all$lambda
+#standardise
+lambda_norm_all <- (lambda_all - min(lambda_all)) / (max(lambda_all) - min(lambda_all))
+
+pcaData$Pseudotime <- lambda_norm_all
+
+#check if pseudotime is according to the stages order
+pcaData$Stage <- factor(pcaData$Stage, levels = stages_order)
+pcaData$Stage <- droplevels(pcaData$Stage)
+
+#check correlation with the stages order and flip if needed
+cor_test <- cor(as.numeric(factor(pcaData$Stage, levels = stages_order)), pcaData$Pseudotime, use = "complete.obs")
+print(cor_test)
+if (cor_test < 0) {
+  pcaData$Pseudotime <- 1 - pcaData$Pseudotime
+}
+
+curve_line <- as.data.frame(pc_curve_all$s)
+colnames(curve_line) <- paste0("PC", 1:2)
+#sort point
+curve_line <- curve_line[order(pcaData$Pseudotime), ]
+
+#pca plot with trajectory curve
+p_curve <- ggplot(pcaData, aes(PC1, PC2, shape = Stage, color = Pseudotime, label = Sample.name)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
+            color = "black", size = 1.2, alpha = 0.7) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  scale_shape_manual(values = c(0:13)) +
+  scale_color_viridis_c() +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  labs(
+    title = expression("            Pseudotime on "* italic("D. melanogaster") * " (dataset 2) gene expression PCA"),
+    color = "Pseudotime",
+    shape = "Stage"
+  )
+
+print(p_curve)
+
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_drosophila2.png",
+        p_curve, width = 8, height = 6, dpi = 300)
+```
+
+### joined drosophila
+
+```{r}
+library(forcats)
+# vst
+vst1 <- vst(drosophila_dds, blind = FALSE)
+vst2 <- vst(drosophila2_dds, blind = FALSE)
+
+mat1 <- assay(vst1)
+mat2 <- assay(vst2)
+
+# 1. common genes set
+common_genes <- intersect(rownames(mat1), rownames(mat2))
+
+mat1 <- mat1[common_genes, ]
+mat2 <- mat2[common_genes, ]
+
+# 2. Połączenie kolumn
+mat_combined <- cbind(mat1, mat2)
+
+# 3. Metadata
+meta1 <- as.data.frame(colData(vst1))
+meta2 <- as.data.frame(colData(vst2))
+
+meta1$Dataset <- "Set 1"
+meta2$Dataset <- "Set 2"
+
+meta <- rbind(meta1, meta2)
+
+# 4. PCA
+pca <- prcomp(t(mat_combined), scale. = TRUE)
+percentVar <- round(100 * (pca$sdev^2 / sum(pca$sdev^2)))
+
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Stage = meta$Stage,
+  Dataset = meta$Dataset,
+  Sample = meta$Sample.name
+)
+
+pca_df$Stage <- as.character(pca_df$Stage) 
+pca_df$Stage <- fct_relevel(pca_df$Stage, sort(unique(pca_df$Stage))) 
+
+# colors in the same order
+stage_colors <- setNames(scales::hue_pal()(length(levels(pca_df$Stage))),
+                         levels(pca_df$Stage))
+
+p <- ggplot(pca_df, aes(PC1, PC2, color = Stage, shape = Dataset, label = Sample)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3.3, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("Joint PCA in " * italic("D. melanogaster"))) +
+  theme_minimal() +
+  scale_color_manual(values = stage_colors) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_drosophila_joint.png",
+       p, width = 8, height = 6, dpi = 300)
+
+```
+
+#### remove batch
+
+```{r}
+# corrected counts only for PCA, UMAP, clustering (after VST on the counts).
+# For DE testing and counting DEGs dont use ComBat-Seq counts -> (raw counts in DESeq2)
+
+#intersect of common genes
+common_genes <- intersect(rownames(drosophila_counts), rownames(drosophila2_counts))
+drosophila_counts <- drosophila_counts[common_genes, ]
+drosophila2_counts <- drosophila2_counts[common_genes, ]
+
+combined_counts <- cbind(drosophila_counts, drosophila2_counts)
+combined_meta <- rbind(drosophila_metadata, drosophila2_metadata)
+
+combined_meta$batch <- factor(c(rep("Set1", ncol(drosophila_counts)),
+                                rep("Set2", ncol(drosophila2_counts))))
+#batch reduction
+combat_counts <- ComBat_seq(
+  as.matrix(combined_counts),
+  batch = combined_meta$batch,
+  group = combined_meta$Stage
+)
+
+#save
+saveRDS(combat_counts,
+        "/home/cluster_user/link_to_datadisk/copy/counts/drosophila_joined_counts.rds")
+saveRDS(combined_meta,
+        "/home/cluster_user/link_to_datadisk/copy/counts/drosophila_joined_metadata.rds")
+
+#check the effects of batch removal
+dds <- DESeqDataSetFromMatrix(
+  countData = combat_counts,
+  colData = combined_meta,
+  design = ~ Stage
+)
+
+vst_mat <- vst(dds, blind = TRUE) |> assay()
+
+pca <- prcomp(t(vst_mat), scale. = TRUE)
+percentVar <- round(100 * (pca$sdev^2 / sum(pca$sdev^2)))
+
+pca_df <- data.frame(
+  PC1 = pca$x[,1],
+  PC2 = pca$x[,2],
+  Stage = combined_meta$Stage,
+  Batch = combined_meta$batch,
+  Sample = combined_meta$Sample.name
+)
+
+p_corr <- ggplot(pca_df, 
+                 aes(PC1, PC2, color = Stage, shape = Batch, label = Sample)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3.3, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle(expression("Batch-corrected PCA in " * italic("D. melanogaster"))) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )
+
+print(p_corr)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_drosophila_joint_batch_corrected.png",
+       p_corr, width = 8, height = 6, dpi = 300)
+```
+
+### triatoma
+
+```{r}
+#| eval: false
+#| include: false
+triatoma_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/triatoma_counts.rds")
+triatoma_metadata <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/triatoma_metadata.rds")
+
+###DESeq
+
+triatoma_dds <- DESeqDataSetFromMatrix(countData = triatoma_counts,
+                              colData = triatoma_metadata,
+                              design= ~Stage)
+#estimate factors
+triatoma_dds <- DESeq(triatoma_dds)
+
+head(results(triatoma_dds, tidy=TRUE))
+summary(results(triatoma_dds))
+```
+
+```{r}
+#| eval: false
+#| include: false
+stages <- levels(triatoma_dds$Stage)
+
+triatoma_comparisons <- list()
+for (i in 1:(length(stages)-1)) {
+  for (j in (i+1):length(stages)) {
+    name <- paste0(stages[j], "_vs_", stages[i])
+    triatoma_comparisons[[name]] <- results(triatoma_dds, contrast = c("Stage", stages[j], stages[i]))
+  }
+}
+```
+
+```{r}
+#| eval: false
+#| include: false
+#diferential genes
+triatoma_deg <- lapply(triatoma_comparisons, function(results) subset(results, padj < 0.05))
+
+#names of the deg
+triatoma_genes <- lapply(triatoma_deg, rownames)
+
+#all unique DEGs
+triatoma_genes_uniq <- unique(unlist(triatoma_genes))
+```
+
+```{r}
+#| eval: false
+#| include: false
+triatoma_vst <- vst(triatoma_dds, blind = FALSE)
+
+pcaData <- plotPCA(triatoma_vst, intgroup = "Sample.name", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$Stage <- colData(triatoma_vst)$Stage
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage, label = Sample.name)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle("PCA of gene expression in T. r") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA_triatoma.png",
+       p, width = 8, height = 6, dpi = 300)
+```
+
+## save deg
+
+```{r}
+saveRDS(locusta_deg, file = "/home/cluster_user/link_to_datadisk/copy/counts/locusta_deg.rds")
+saveRDS(harmonia_deg, file = "/home/cluster_user/link_to_datadisk/copy/counts/harmonia_deg.rds")
+saveRDS(drosophila_deg, file = "/home/cluster_user/link_to_datadisk/copy/counts/drosophila_deg.rds")
+saveRDS(plutella_deg, file = "/home/cluster_user/link_to_datadisk/copy/counts/plutella_deg.rds")
+saveRDS(drosophila2_deg, file = "/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_deg.rds")
+saveRDS(blattella_deg, file = "/home/cluster_user/link_to_datadisk/copy/counts/blattella_deg.rds")
+```

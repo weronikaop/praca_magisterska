@@ -1,0 +1,377 @@
+---
+title: "deg_analysis_7"
+format: html
+editor: visual
+---
+
+### unique genes comparison
+
+## libs
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(Biostrings)
+library(tibble)
+library(DESeq2)
+```
+
+```{r}
+#read degs
+locusta_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/locusta_deg.rds")
+harmonia_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_deg.rds")
+plutella_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_deg.rds")
+drosophila_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_deg.rds")
+drosophila2_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_deg.rds")
+blattella_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_deg.rds")
+```
+
+```{r}
+#read orthogroups and 1:1 orthogroups IDs
+orthogroups <- read_tsv("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_Jun25/Orthogroups/Orthogroups.tsv")
+
+single_copy <- read_lines("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_Jun25/Orthogroups/Orthogroups_SingleCopyOrthologues.txt")
+
+#filter orthogroups to 1:1 only
+og_sc <- orthogroups %>%
+  filter(Orthogroup %in% single_copy)
+
+head(og_sc)
+
+#read snap orthogroups
+snap_files <- list.files(
+  "/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_Jun25/output_snap_ogs/",
+  pattern = "\\.fa$",
+  full.names = TRUE
+)
+
+#extract IDs and species
+snap_orthologs <- lapply(snap_files, function(file) {
+  fasta <- readAAStringSet(file)
+  genes <- names(fasta)
+  
+  tibble(
+    orthogroup = str_remove(basename(file), "\\.fa.orthosnap.0.fa$"),
+    gene_id = str_replace(genes, "^.*?_", "") %>% str_replace("\\..*", "")
+  ) %>%
+    mutate(
+      Species = case_when(
+        str_detect(gene_id, "^Haxy") ~ "harmonia",
+        str_detect(gene_id, "^Bger") ~ "blattella",
+        str_detect(gene_id, "^Pxyl") ~ "plutella",
+        str_detect(gene_id, "^Dmen") ~ "drosophila",
+        str_detect(gene_id, "^g") ~ "locusta"
+      )
+    )
+}) %>% bind_rows()
+
+#orthogroup genes in each species
+snap_wide <- snap_orthologs %>%
+  group_by(orthogroup, Species) %>%
+  summarise(Gene = paste(unique(gene_id), collapse = ","), .groups="drop") %>%
+  pivot_wider(names_from = Species, values_from = Gene)
+
+head(snap_wide)
+
+names(snap_wide) <- str_to_lower(names(snap_wide))
+names(og_sc) <- str_to_lower(names(orthogroups))
+
+#merge 1:1 standard with SNAP
+merged <- bind_rows(og_sc, snap_wide)
+head(merged)
+
+#orthogroup species gene
+og_long <- merged %>%
+  pivot_longer(-orthogroup, names_to="Species", values_to="Gene") %>%
+  separate_rows(Gene, sep=",") %>%
+  filter(Gene != "")
+
+head(og_long)
+
+saveRDS(og_long, file = "/home/cluster_user/link_to_datadisk/copy/counts/gene2og.rds")
+```
+
+```{r}
+#list of lists of DEGs
+deg_lists_per_species <- list(
+  plutella = plutella_deg,
+  locusta = locusta_deg,
+  blattella = blattella_deg,
+  drosophila_1 = drosophila_deg,
+  drosophila_2 = drosophila2_deg,
+  harmonia = harmonia_deg
+)
+
+#function that maps DEGs to matching orthogroups
+map_deg_to_og <- function(deg_list, species_name, og_long) {
+  #"drosophila_1", "drosophila_2" mapped to "drosophila"
+  species_lookup <- case_when(
+    species_name %in% c("drosophila_1", "drosophila_2") ~ "drosophila",
+    TRUE ~ species_name
+  )
+  
+  gene2og <- og_long %>%
+    filter(Species == species_lookup) %>%
+    select(Gene, orthogroup)
+  
+  deg_og <- lapply(deg_list, function(res) {
+    genes <- rownames(res)
+    inner_join(tibble(Gene = genes), gene2og, by = "Gene") %>%
+      pull(orthogroup) %>% unique()
+  })
+  
+  names(deg_og) <- names(deg_list)
+  return(deg_og)
+}
+
+#list of mapped DEG orthogroups per stage per species
+deg_og_per_species <- lapply(names(deg_lists_per_species), function(sp) {
+  map_deg_to_og(deg_lists_per_species[[sp]], sp, og_long)
+})
+names(deg_og_per_species) <- names(deg_lists_per_species)
+```
+
+```{r}
+### change specific stage names to the common stage names (Stage2)
+#based on metadata
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ";") 
+
+species_alias <- c(
+  "drosophila_1" = "drosophila",
+  "drosophila_2" = "drosophila"
+)
+
+#rename comparisons and remove duplicates
+rename_comparison_from_metadata <- function(comp, sp, metadata, species_alias) {
+  phases <- unlist(strsplit(comp, "_vs_"))
+  
+  #normalize names using aliases
+  sp_clean <- ifelse(sp %in% names(species_alias), species_alias[sp], sp)
+  
+  #mapping from Stage to Stage2
+  stage_map <- setNames(metadata$Stage2[metadata$Species == sp_clean],
+                        metadata$Stage[metadata$Species == sp_clean])
+  
+  new_phases <- unname(stage_map[phases])
+  if (any(is.na(new_phases))) return(NA)
+  if (length(unique(new_phases)) == 1) return(NA) #delete self-comparison
+  
+  paste(new_phases, collapse = "_vs_")
+}
+
+deg_og_stage2 <- lapply(names(deg_og_per_species), function(sp) {
+  comps <- names(deg_og_per_species[[sp]])
+  
+  renamed <- sapply(comps, function(c) rename_comparison_from_metadata(c, sp, metadata, species_alias),
+                    USE.NAMES = FALSE)
+  
+  valid_idx <- !is.na(renamed) & renamed != "" & !duplicated(renamed)
+  
+  out <- deg_og_per_species[[sp]][valid_idx]
+  names(out) <- renamed[valid_idx]
+  out
+})
+names(deg_og_stage2) <- names(deg_og_per_species)
+
+```
+
+```{r}
+#delete empty (locusta)
+deg_og_stage2 <- deg_og_stage2[sapply(deg_og_stage2, length) > 0]
+
+
+# all og
+all_ogs <- sort(unique(unlist(lapply(deg_og_stage2, unlist))))
+
+#binary matrix for each species
+bin_mat_list <- lapply(deg_og_stage2, function(deg_og) {
+  comparisons <- names(deg_og)
+  mat <- sapply(comparisons, function(cmp) {
+    ogs <- deg_og[[cmp]]
+    as.integer(all_ogs %in% ogs)
+  })
+  rownames(mat) <- all_ogs
+  colnames(mat) <- comparisons
+  return(mat)
+})
+
+#name normalization
+normalize_comparison_name <- function(name) {
+  stages <- strsplit(name, "_vs_")[[1]]
+  paste(sort(stages), collapse = "_vs_")
+}
+
+bin_mat_list_stage2 <- lapply(bin_mat_list, function(mat) {
+  colnames(mat) <- sapply(colnames(mat), normalize_comparison_name)
+  mat[, !duplicated(colnames(mat)), drop = FALSE]
+})
+
+#### matrix of all OG from all species
+all_mat <- do.call(cbind, lapply(names(bin_mat_list_stage2), function(sp) {
+  mat <- bin_mat_list_stage2[[sp]]
+  colnames(mat) <- paste(sp, colnames(mat), sep = "::")
+  mat
+}))
+```
+
+```{r}
+#binary heatmap
+library(pheatmap)
+
+#only degs that are in 3+ samples
+og_filter <- rowSums(all_mat) > 2
+mat_plot <- all_mat[og_filter, ]
+
+png("/home/cluster_user/Magisterka/plots/heatmap_DEG_OGs.png", width = 1500, height = 2000, res = 300)
+
+pheatmap(mat_plot,
+         cluster_rows = FALSE,
+         cluster_cols = TRUE,
+         show_rownames = FALSE,
+         fontsize_col = 6,
+         color = c("white", "red"),
+         legend = FALSE
+)
+
+dev.off()
+
+pheatmap(mat_plot,
+         cluster_rows = FALSE,
+         cluster_cols = TRUE,
+         show_rownames = FALSE,
+         fontsize_col = 6,
+         color = c("white", "red"),
+         legend = FALSE
+)
+```
+
+```{r}
+library(UpSetR)
+
+# zamiana na listę zbiorów OG
+sets_list <- lapply(colnames(all_mat), function(cmp) {
+  rownames(all_mat)[all_mat[, cmp] == 1]
+})
+names(sets_list) <- colnames(all_mat)
+
+og_filter <- rowSums(all_mat) > 1
+sets_list_top <- lapply(colnames(all_mat), function(cmp) {
+  rownames(all_mat)[all_mat[, cmp] == 1 & rownames(all_mat) %in% rownames(all_mat[og_filter, ])]
+})
+names(sets_list_top) <- colnames(all_mat)
+
+
+png("/home/cluster_user/Magisterka/plots/upset_plot_topOG.png", width = 2000, height = 2000, res = 200)
+upset(fromList(sets_list_top), 
+      nsets = 20,    
+      nintersects = 30, 
+      order.by = "freq",
+      sets.bar.color = "#4C72B0",
+      main.bar.color = "#DD8452",
+      text.scale = c(1.5, 1.2, 1, 1, 1, 1),
+      mainbar.y.label = "Number of DEG Orthogroups")
+dev.off()
+
+# Upset plot
+upset(fromList(sets_list_top), 
+      nsets = 20, 
+      nintersects = 30, 
+      order.by = "freq",
+      sets.bar.color = "#4C72B0",
+      main.bar.color = "#DD8452",
+      text.scale = c(1.5, 1.2, 1, 1, 1, 1),
+      mainbar.y.label = "Number of DEG Orthogroups")
+```
+
+### some other analysis
+
+```{r}
+# hemi-metaboliczne
+hemi_species <- c("locusta", "blattella")
+
+# holo-metaboliczne
+holo_species <- c("harmonia", "plutella", "drosophila")
+
+# przypisanie porównań do gatunków
+comp_species <- sapply(strsplit(colnames(all_mat), "::"), `[`, 1)
+
+hemi_comps <- colnames(all_mat)[comp_species %in% hemi_species]
+holo_comps <- colnames(all_mat)[comp_species %in% holo_species]
+
+nymph_comps <- grep("Nymph", hemi_comps, value = TRUE)
+
+nymph_ogs <- unique(unlist(lapply(nymph_comps, function(cmp) {
+  rownames(all_mat)[all_mat[, cmp] == 1]
+})))
+
+```
+
+```{r}
+# OG z holo
+holo_overlap <- sapply(holo_comps, function(cmp) {
+  ogs <- rownames(all_mat)[all_mat[, cmp] == 1]
+  length(intersect(nymph_ogs, ogs))
+})
+
+# posortowane wyniki
+sort(holo_overlap, decreasing = TRUE)
+
+```
+
+```{r}
+barplot(sort(holo_overlap, decreasing = TRUE),
+        las = 2, cex.names = 0.7,
+        col = "#4C72B0",
+        ylab = "Shared OG with Nymph (Hemi)",
+        main = "Overlap of Nymph OG with Holo comparisons")
+
+```
+
+## combined deg
+
+```{r}
+dds <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/dds.rds")
+
+```
+
+```{r}
+res_larva <- results(dds, contrast = c("Stage2", "Larva", "Nymph"))
+
+larva_genes <- rownames(res_larva)[
+  res_larva$padj < 0.05 & res_larva$log2FoldChange > 1
+]
+
+metadata$Stage_num <- as.numeric(factor(
+  metadata$Stage2,
+  levels = c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+))
+
+metadata <- metadata[colnames(combined_counts), ]
+
+dds_trend <- DESeqDataSetFromMatrix(
+  countData = combined_counts,
+  colData   = metadata,
+  design    = ~ Species + Stage_num
+)
+
+dds_trend <- DESeq(dds_trend)
+res_trend <- results(dds_trend, name = "Stage_num")
+
+gradual_genes <- rownames(res_trend)[
+  !is.na(res_trend$padj) &
+  res_trend$padj < 0.05 &
+  abs(res_trend$log2FoldChange) > 0
+]
+
+# Optional: separate increasing vs decreasing
+gradual_up <- rownames(res_trend)[res_trend$padj < 0.05 & res_trend$log2FoldChange > 0]
+gradual_down <- rownames(res_trend)[res_trend$padj < 0.05 & res_trend$log2FoldChange < 0]
+
+res_nymph <- results(dds, contrast = c("Stage2", "Nymph", "Larva"))
+res_pupa   <- results(dds, contrast = c("Stage2", "Prepupa", "Nymph"))
+
+nymph_genes <- rownames(res_nymph)[res_nymph$padj < 0.05 & res_nymph$log2FoldChange > 1]
+
+```

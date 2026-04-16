@@ -1,0 +1,145 @@
+---
+title: "orthogroups_4"
+output: html_document
+date: "2025-07-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Orthologs
+
+## Orthofinder version 2.5.5
+
+CITATION:
+
+When publishing work that uses OrthoFinder please cite:
+
+Emms D.M. & Kelly S. (2019), Genome Biology 20:238
+
+If you use the species tree in your work then please also cite:
+
+Emms D.M. & Kelly S. (2017), MBE 34(12): 3267-3278
+
+Emms D.M. & Kelly S. (2018), bioRxiv <https://doi.org/10.1101/267914>
+
+1.  prepare fasta files with proteins for each genome
+
+so this is wrong!!!! these are nucleotides not proteins
+
+gffread Locusta_migratoria_v2_fixed.gff3 -g Locusta_migratoria_v2.genome.fa -w locusta_proteins.fasta
+
+gffread Harmonia_axyridis.gff3 -g Harmonia_axyridis.genome.fa -w harmonia_proteins.fasta
+
+gffread Plutella_xylostella.gff3 -g Plutella_xylostella.genome.fa -w plutella_proteins.fasta
+
+gffread Drosophila_melanogaster.gff3 -g Drosophila_melanogaster.genome.fa -w drosophila_proteins.fasta
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+the right way:
+
+proteins:
+
+gffread Locusta_migratoria_v2_fixed.gff3 -g Locusta_migratoria_v2.genome.fa -y locusta_proteins.fasta
+
+gffread Harmonia_axyridis.gff3 -g Harmonia_axyridis.genome.fa -y harmonia_proteins.fasta
+
+gffread Plutella_xylostella.gff3 -g Plutella_xylostella.genome.fa -y plutella_proteins.fasta
+
+gffread Drosophila_melanogaster.gff3 -g Drosophila_melanogaster.genome.fa -y drosophila_proteins.fasta
+
+gffread Blattella_germanica.gff3 -g Blattella_germanica.genome.fa -y blattella_proteins.fasta
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+then choose the longest with \--primary_transcripts
+
+rename \> so there's gene name in gene=
+
+\-\-\-\-\--
+
+sed -E 's/\^(\>([\^.]+)\\.[\^ ]\*).\*/\\1 gene=\\2/' locusta_proteins.fasta \> locusta.fasta
+
+sed -E 's/\^(\>([\^.]+)\\.[\^ ]\*).\*/\\1 gene=\\2/' harmonia_proteins.fasta \> harmonia.fasta
+
+sed -E 's/\^(\>([\^.]+)\\.[\^ ]\*).\*/\\1 gene=\\2/' plutella_proteins.fasta \> plutella.fasta
+
+sed -E 's/\^(\>([\^.]+)\\.[\^ ]\*).\*/\\1 gene=\\2/' drosophila_proteins.fasta \> drosophila.fasta
+
+sed -E 's/\^(\>([\^.]+)\\.[\^ ]\*).\*/\\1 gene=\\2/' blattella_proteins.fasta \> proteins/blattella.fasta
+
+python3 ./OrthoFinder/tools/primary_transcript.py proteins/locusta.fasta
+
+python3 ./OrthoFinder/tools/primary_transcript.py proteins/harmonia.fasta
+
+python3 ./OrthoFinder/tools/primary_transcript.py proteins/plutella.fasta
+
+python3 ./OrthoFinder/tools/primary_transcript.py proteins/drosophila.fasta
+
+python3 ./OrthoFinder/tools/primary_transcript.py proteins/blattella.fasta
+
+\-- locusta had some isoforms (the rest didnt)
+
+2.  
+
+./OrthoFinder/orthofinder -f ./primary_transcripts
+
+\-\-\-- this is still wrong cause orthofinder thinks that the files are nucletiode not aa (like why)
+
+\-\-- there may have been some hidden weird signs (which i dont see but orthofinder does)
+
+\-- they were there already from gffread (-A shows \$ at the end of line but idk if thats it - ortho says a . and in many different places)
+
+for file in \*.fasta; do
+
+sed -E '/\^\>/! s/[\^ACDEFGHIKLMNPQRSTVWYBXZ\\\*]//g' "\$file" \> cleaned\_"\$file"
+
+sed -E '/\^\>/! s/[\^ACDEFGHIKLMNPQRSTVWYBXZ\\\*]//g' proteins/blattella.fasta \> proteins/c_blattella.fasta
+
+done
+
+\-\-- (some weird errors -\> delete everything -\> now it works)
+
+./OrthoFinder/orthofinder -f ./proteins
+
+3\.
+
+there are only 4 1:1 orthogroups
+
+in the publication there were \~3900
+
+orthosnap is used to find quasi 1:1 so it should help (2 more yay)
+
+\-\-\-\-\-\-\-\-\-\-\-- 2nd trial -\> aa
+
+single copy:
+
+3156 genes orthofinder \<- 789 orthogroups + 286 orthosnap -\>1144
+
+1075 x4 -\> 4300 (no repeats between)
+
+\--
+
+19k groups in total
+
+\-\-\-\-\-\-\-\--
+
+with blattella:
+
+621 orthogroups + 200 orthosnap -\> 821
+
+## OrthoSnap
+
+Version: 1.3.2
+
+Citation: Steenwyk et al. (2022), PLOS Biology. DOI: 10.1371/journal.pbio.3001827.
+
+<https://journals.plos.org/plosbiology/article?id=10.1371/journal.pbio.3001827>
+
+\-- there's a problem with fasta files \> name for each group of orthologs
+
+\-- changed names by adding species \_ before gene name
+
+\-\-\--\> there are multiple orthogroups for one previous (but they seem to not overlap ig)

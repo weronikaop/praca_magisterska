@@ -1,0 +1,726 @@
+---
+title: "plots_4species_5"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc_float: true
+    toc-depth: 6
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Part 1 species
+
+```{r}
+library(DESeq2)
+library(ggplot2)
+library(tidyr)
+library(umap)
+library(pheatmap)
+library(ggrepel)
+library(readr)
+library(stringr)
+library(dplyr)
+library(tibble)
+library(Biostrings)
+library(Mfuzz)
+library(Biobase)
+library(limma)
+library(uwot) 
+library(grid)
+```
+
+### matrix
+
+```{r}
+locusta_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/locusta_counts.rds")
+harmonia_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_counts.rds")
+plutella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_counts.rds")
+drosophila_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_counts.rds")
+
+```
+
+```{r}
+orthogroups <- read_tsv("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_May15/Orthogroups/Orthogroups.tsv")
+
+
+single_copy <- read_lines("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_May15/Orthogroups/Orthogroups_SingleCopyOrthologues.txt")
+
+#in this file i can check for each gene to which orthogroup does it belong
+head(orthogroups)
+
+head(single_copy)
+```
+
+```{r}
+#| echo: true
+#| eval: true
+#| results: false
+#making matrix with columns SRR and with rows orthogroups
+#so for each gene with counts need to sum it into orthogroup
+
+#list of dataframes with counts
+all_counts <- list(
+  locusta = locusta_counts,
+  harmonia = harmonia_counts,
+  plutella = plutella_counts,
+  drosophila = drosophila_counts
+)
+
+
+#in one table: all gene names, all SRR, information about species
+all_counts_long <- lapply(names(all_counts), function(species) {
+  df <- all_counts[[species]]
+  df$gene_id <- rownames(df)
+  df$species <- species
+  df
+}) %>%
+  bind_rows()
+
+head(all_counts_long)
+
+```
+
+```{r}
+# orthosnap so only 1:1 snap are left
+
+snap_files <- list.files("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_May15/output_snap_ogs/", pattern = "\\.fa$", full.names = TRUE)
+
+snap_orthologs <- lapply(snap_files, function(file) {
+  fasta <- readAAStringSet(file)
+  genes <- names(fasta)
+  
+  tibble(
+    orthogroup = str_remove(basename(file), "\\.fa.orthosnap.0.fa$"),
+    gene_id = str_replace(genes, "^.*?_", "") %>%
+          str_replace("\\..*", "")
+  )
+}) %>% bind_rows()
+
+snap_expr <- snap_orthologs %>%
+  inner_join(all_counts_long, by = "gene_id")
+
+orthosnap_counts <- snap_expr %>%
+  select(-gene_id, -species) %>%
+  group_by(orthogroup) %>%
+  summarise(across(everything(), ~sum(.x, na.rm = TRUE))) %>%
+  column_to_rownames(var = "orthogroup")
+
+
+```
+
+```{r}
+
+#table: orthogroup, species, gene
+orthogroup_mapping <- orthogroups %>%
+  pivot_longer(-Orthogroup, names_to = "species", values_to = "genes") %>%
+  filter(!is.na(genes)) %>%
+  separate_rows(genes, sep = ",") %>%
+  mutate(
+    genes = str_trim(genes),
+    species = str_replace(species, "_proteins", ""),
+    genes = str_replace(genes, "\\..*", "") 
+  )
+
+orthogroup_mapping %>%
+  count(species)
+
+# drosophila	11268			
+# harmonia	17855			
+# locusta	91040			
+# plutella	22808		
+
+head(orthogroup_mapping)
+
+
+#to the all_counts_long adding orthogroup
+merged <- all_counts_long %>%
+  inner_join(orthogroup_mapping, by = c("gene_id" = "genes"))
+
+head(merged)
+
+```
+
+```{r}
+#deleting columns with species, gene ids
+#summing counts for each  orthogroup
+orthogroup_counts <- merged %>%
+  select(-c("gene_id", "species.x", "species.y")) %>%
+  group_by(Orthogroup) %>%
+  summarise(across(everything(), ~sum(.x, na.rm = TRUE)))
+
+head(orthogroup_counts)
+
+orthogroup_counts <- orthogroup_counts %>%
+  column_to_rownames(var = "Orthogroup")
+
+head(orthogroup_counts)
+```
+
+```{r}
+#only 1:1
+
+
+orthogroup_counts_1to1 <- orthogroup_counts %>%
+  filter(rownames(.) %in% single_copy)
+
+#does anything overlap?
+overlapping_genes <- intersect(rownames(orthogroup_counts_1to1), rownames(orthosnap_counts))
+
+length(overlapping_genes)
+print(overlapping_genes)
+
+
+combined_counts <- bind_rows(
+  orthogroup_counts_1to1,
+  orthosnap_counts[!rownames(orthosnap_counts) %in% rownames(orthogroup_counts_1to1), ]
+)
+
+combined_counts[is.na(combined_counts)] <- 0
+
+```
+
+### deseq2
+
+```{r}
+metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ",") %>%
+  filter(Species != "blatella")
+
+metadata <- metadata[colnames(orthogroup_counts), ]
+
+head(metadata)
+dim(metadata)
+
+```
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = combined_counts,
+                              colData = metadata,
+                              design = ~ Stage2)
+
+#fit the model and estimate differential expression
+dds <- DESeq(dds)
+
+head(results(dds, tidy=TRUE))
+summary(results(dds))
+```
+
+#### pca
+
+```{r}
+#variance-stabilizing transformation (reduces dependence of variance on mean expression)
+vst <- varianceStabilizingTransformation(dds, blind = FALSE)
+vst_mat <- assay(vst)
+
+#get metadata
+sample_info <- as.data.frame(colData(vst))
+sample_info$Sample <- rownames(sample_info)
+sample_info <- sample_info %>% select(Sample, Sample2, Stage2, Species)
+
+#rows: samples; columns: genes
+vst_df <- as.data.frame(t(vst_mat))
+vst_df$Sample <- rownames(vst_df)
+#add metadata
+vst_df <- left_join(vst_df, sample_info, by = "Sample")
+
+#median on replicates (before pca)
+vst_median <- vst_df %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+#prepare for pca
+expr_median <- vst_median %>% select(-Stage2, -Species)
+samples <- vst_median$Sample2
+expr_values <- vst_median %>% select(-Sample2, -Stage2, -Species)
+
+exprs_mat <- t(as.matrix(expr_values))
+colnames(exprs_mat) <- vst_median$Sample2
+rownames(exprs_mat) <- colnames(expr_values)
+exprs_mat <- t(exprs_mat)
+
+#ExpressionSet object
+pheno <- AnnotatedDataFrame(data.frame(Sample = colnames(exprs_mat),
+                                       row.names = colnames(exprs_mat)))
+eset <- ExpressionSet(assayData = exprs_mat, phenoData = pheno)
+
+#standardize (mean = 0, sd = 1)
+eset_std <- standardise(eset)
+expr_scaled <- exprs(eset_std)
+
+#principal component analysis
+pca <- prcomp(expr_scaled)
+#explained variance
+percentVar <- round(100 * (pca$sdev^2 / sum(pca$sdev^2)), 1)
+
+#plot
+pcaData <- as.data.frame(pca$x)
+pcaData$Sample2 <- vst_median$Sample2
+pcaData$Stage2 <- vst_median$Stage2
+pcaData$Species <- vst_median$Species
+
+stages_order <- c("Larva", "Nymph", "Prepupa", "Pupa")
+stage_colors <- setNames(scales::hue_pal()(length(stages_order) + 4)[5:(length(stages_order) + 4)], stages_order)
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle("PCA of gene expression  (original data)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  )+
+  scale_color_manual(values = stage_colors)+
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p)
+
+#save PNG
+ggsave("/home/cluster_user/Magisterka/plots/PCA1_stage_species.png",
+       p, width = 10, height = 8, dpi = 300)
+```
+
+#### heatmap
+
+```{r}
+#annotations
+annotation_df <- vst_median %>%
+  select(Sample2, Stage2, Species) %>%
+  rename(Stage = Stage2) %>% 
+  column_to_rownames("Sample2")
+
+species_labels <- c(
+  "drosophila" = "D. melanogaster",
+  "harmonia"   = "H. axyridis",
+  "locusta"    = "L. migratoria",
+  "plutella"   = "P. xylostella"
+)
+
+#change species names acording to map above
+annotation_df$Species <- species_labels[ as.character(annotation_df$Species) ]
+annotation_df$Species <- factor(annotation_df$Species, levels = unname(species_labels))
+
+
+#different colours for species
+species_levels <- unique(annotation_df$Species)
+species_colors <- setNames(
+  RColorBrewer::brewer.pal(n = max(3, length(species_levels)), "Set1")[1:length(species_levels)],
+  species_levels
+)
+
+stages_order <- c("Larva", "Nymph", "Prepupa", "Pupa")
+annotation_df$Stage <- factor(annotation_df$Stage, levels = stages_order)
+
+annotation_colors <- list(
+  Stage = stage_colors,
+  Species = species_colors
+)
+
+heat_colors <- colorRampPalette(rev(RColorBrewer::brewer.pal(n = 11, name = "RdBu")))(100)
+
+#heatmap: columns: samples; rows: orthogroups; values: standardised gene expression
+ph <- pheatmap(t(expr_scaled),
+         scale = "row",
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "ward.D2",
+         annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
+         show_rownames = FALSE,
+         show_colnames = TRUE,
+         fontsize_col = 8,
+         fontsize = 12,
+         border_color = NA,
+         angle_col = 45,
+         main = "Heatmap of gene expression  (original data)",
+         color = heat_colors
+         )
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/pheatmap1_all_samples.png", ph, width = 11, height = 8)
+```
+
+#### cluster
+
+```{r}
+#heatmap of differential expression between stages
+unique_stages <- levels(dds$Stage2)
+
+#matrix for storing DEG counts between stages
+mat <- matrix(0, nrow = length(unique_stages), ncol = length(unique_stages),
+              dimnames = list(unique_stages, unique_stages))
+
+#run all pairwise comparisons of DEGs
+pairwise_comparisons <- combn(unique_stages, 2, simplify = FALSE)
+deg_list <- list()
+
+for (comp in pairwise_comparisons) {
+  group1 <- comp[1]
+  group2 <- comp[2]
+
+  res <- tryCatch({
+    results(dds, contrast = c("Stage2", group1, group2))
+  }, error = function(e) {
+    message(paste("Contrast", group1, "vs", group2, "failed:", e$message))
+    return(NULL)
+  })
+
+  if (!is.null(res)) {
+    deg_list[[paste0(group1, "_vs_", group2)]] <- as.data.frame(res)
+    n_deg <- sum(res$padj < 0.05, na.rm = TRUE)
+
+    mat[group1, group2] <- n_deg
+    mat[group2, group1] <- n_deg
+  }
+}
+
+#heatmap
+deg_colors <- colorRampPalette(RColorBrewer::brewer.pal(n = 9, name = "Oranges"))(100)
+
+ph <- pheatmap(mat,
+         fontsize_row = 10,
+         fontsize_col = 10,
+         angle_col = 45,
+         cellwidth = 20,
+         cellheight = 20,
+         border_color = NA,
+         main = "Number of DEGs between stages",
+         color = deg_colors
+)
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+png("/home/cluster_user/Magisterka/plots/pheatmap1_stage_species.png",
+    width = 1000, height = 700, res = 150)
+
+ph <- pheatmap(mat,
+         fontsize_row = 10,
+         fontsize_col = 10,
+         angle_col = 45,
+         cellwidth = 20,
+         cellheight = 20,
+         border_color = NA,
+         main = "Number of DEGs between stages\n(original data)",
+         color = deg_colors
+)
+
+dev.off()
+```
+
+#### umap
+
+```{r}
+#Uniform Manifold Approximation and Projection
+#Mfuzz standardise (z-score on orthogroups)
+pheno <- AnnotatedDataFrame(data.frame(Sample = colnames(vst_mat),
+                                       row.names = colnames(vst_mat)))
+eset <- ExpressionSet(assayData = vst_mat, phenoData = pheno)
+eset_std <- standardise(eset)
+expr_scaled <- exprs(eset_std)
+
+#dataframe with matadata
+expr_df <- as.data.frame(t(expr_scaled)) 
+expr_df$Sample <- colnames(vst_mat) 
+sample_info <- as.data.frame(colData(vst)) 
+sample_info$Sample <- rownames(sample_info) 
+expr_df <- left_join(expr_df, sample_info, by = "Sample") 
+
+#medians
+expr_median <- expr_df %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+#UMAP
+expr_median_mat <- expr_median %>%
+  ungroup() %>%
+  select(-Sample2, -Stage2, -Species) %>%
+  as.matrix()
+
+#standardise
+expr_median_mat <- t(scale(t(expr_median_mat)))
+
+umap_result <- umap(expr_median_mat, n_neighbors = 15, min_dist = 0.1, metric = "euclidean")
+umap_df <- as.data.frame(umap_result)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+umap_df$Sample2 <- expr_median$Sample2
+umap_df$Stage2 <- expr_median$Stage2
+umap_df$Species <- expr_median$Species
+
+#plot
+p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 2.5) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  xlab("UMAP1") +
+  ylab("UMAP2") +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.title = element_text(size = 13, face = "bold")
+  ) +
+  ggtitle("UMAP of gene expression (original data)") +
+  labs(color = "Stage", shape = "Species") +
+  scale_color_manual(values = stage_colors)+
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p)
+
+#save PNG
+ggsave("/home/cluster_user/Magisterka/plots/UMAP1_stage_species.png",
+       p, width = 10, height = 8, dpi = 300)
+
+```
+
+### remove species effect
+
+#### pca 2
+
+```{r}
+# VST
+vst <- varianceStabilizingTransformation(dds, blind = FALSE)
+vst_mat <- assay(vst)
+
+#linear model to delete the species effect
+residuals_mat <- apply(vst_mat, 1, function(x) {
+  lm(x ~ colData(vst)$Species)$residuals
+})
+residuals_mat <- t(residuals_mat)
+
+sample_info <- as.data.frame(colData(vst))
+sample_info$Sample <- rownames(sample_info)
+sample_info <- sample_info %>% select(Sample, Sample2, Stage2, Species)
+
+#data.frame residuals + Sample
+residuals_df <- as.data.frame(t(residuals_mat))
+residuals_df$Sample <- rownames(residuals_df)
+residuals_df <- left_join(residuals_df, sample_info, by = "Sample")
+
+#median for each Sample2/Stage2
+residuals_median <- residuals_df %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+expr_median <- residuals_median %>% select(-Stage2, -Species)
+samples <- expr_median$Sample2
+expr_values <- expr_median %>% select(-Sample2)
+exprs_mat <- t(as.matrix(expr_values))
+colnames(exprs_mat) <- expr_median$Sample2
+rownames(exprs_mat) <- colnames(expr_values)
+exprs_mat <- t(exprs_mat)
+
+#standardize Mfuzz
+pheno <- AnnotatedDataFrame(data.frame(Sample = colnames(exprs_mat), row.names = colnames(exprs_mat)))
+eset <- ExpressionSet(assayData = exprs_mat, phenoData = pheno)
+eset_std <- standardise(eset)
+expr_scaled <- exprs(eset_std)
+
+#PCA
+pca <- prcomp(expr_scaled)
+percentVar <- round(100 * (pca$sdev^2 / sum(pca$sdev^2)), 1)
+
+pcaData <- as.data.frame(pca$x)
+pcaData$Sample2 <- residuals_median$Sample2
+pcaData$Stage2 <- residuals_median$Stage2
+pcaData$Species <- residuals_median$Species
+
+p <- ggplot(pcaData, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 1000) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle("PCA of gene expression (original data, removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(legend.position = "right")+
+  scale_color_manual(values = stage_colors)+
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = "D. melanogaster",
+      "plutella" = "P. xylostella",
+      "locusta" = "L. migratoria",
+      "harmonia" = "H. axyridis"
+    )
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/PCA1_stage.png",
+       p, width = 10, height = 8, dpi = 300)
+
+```
+
+#### heatmap 2
+
+```{r}
+#annotations
+annotation_df <- residuals_median %>%
+  select(Sample2, Stage2, Species) %>%
+  rename(Stage = Stage2) %>% 
+  column_to_rownames("Sample2")
+
+#change species names to full
+annotation_df$Species <- species_labels[ as.character(annotation_df$Species) ]
+annotation_df$Species <- factor(annotation_df$Species, levels = unname(species_labels))
+
+#different colours for species
+species_levels <- unique(annotation_df$Species)
+species_colors <- setNames(
+  RColorBrewer::brewer.pal(n = max(3, length(species_levels)), "Set1")[1:length(species_levels)],
+  species_levels
+)
+
+stages_order <- c("Larva", "Nymph", "Prepupa", "Pupa")
+annotation_df$Stage <- factor(annotation_df$Stage, levels = stages_order)
+stage_colors <- setNames(scales::hue_pal()(length(stages_order) + 4)[5:(length(stages_order) + 4)], stages_order)
+
+
+annotation_colors <- list(
+  Stage = stage_colors,
+  Species = species_colors
+)
+
+ph <- pheatmap(t(expr_scaled),
+         scale = "row",
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "ward.D2",
+         annotation_col = annotation_df,
+         annotation_colors = annotation_colors,
+         show_rownames = FALSE,
+         show_colnames = TRUE,
+         fontsize_col = 8,
+         fontsize = 12,
+         border_color = NA,
+         angle_col = 45,
+         main = "Heatmap of gene expression\n(original data, removed species effect)",
+         color = heat_colors
+         )
+
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/heatmap1_stage.png", ph, width = 12, height = 8)
+```
+
+#### umap 2
+
+```{r}
+vst <- varianceStabilizingTransformation(dds, blind = FALSE)
+vst_mat <- assay(vst)
+
+# residuals for species
+residuals_mat <- t(apply(vst_mat, 1, function(x) {
+  lm(x ~ colData(vst)$Species)$residuals
+}))
+#scaling
+expr_scaled <- t(scale(t(residuals_mat)))
+
+expr_df <- as.data.frame(t(expr_scaled))
+expr_df$Sample <- colnames(vst_mat)
+
+sample_info <- as.data.frame(colData(vst))
+sample_info$Sample <- rownames(sample_info)
+
+expr_df <- left_join(expr_df, sample_info, by = "Sample")
+
+#medians
+expr_median <- expr_df %>%
+  group_by(Sample2, Stage2, Species) %>%
+  summarise(across(where(is.numeric), median), .groups = "drop")
+
+
+#UMAP
+expr_median_mat <- expr_median %>%
+  ungroup() %>%
+  select(-Sample2, -Stage2, -Species) %>%
+  as.matrix()
+
+#standardise
+expr_median_mat <- t(scale(t(expr_median_mat)))
+
+umap_result <- umap(expr_median_mat, n_neighbors = 15, min_dist = 0.1, metric = "euclidean")
+umap_df <- as.data.frame(umap_result)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+umap_df$Sample2 <- expr_median$Sample2
+umap_df$Stage2 <- expr_median$Stage2
+umap_df$Species <- expr_median$Species
+
+#plot
+p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 1000) +
+  xlab("UMAP 1") +
+  ylab("UMAP 2") +
+  ggtitle("UMAP of gene expression (original data, removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(legend.position = "right")+
+  scale_color_manual(values = stage_colors)+
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = "D. melanogaster",
+      "plutella" = "P. xylostella",
+      "locusta" = "L. migratoria",
+      "harmonia" = "H. axyridis"
+    )
+  )
+
+print(p)
+ggsave("/home/cluster_user/Magisterka/plots/UMAP1_stage.png",
+       p, width = 10, height = 8, dpi = 300)
+```
