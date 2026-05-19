@@ -349,7 +349,7 @@ pcaData$Species <- vst_median$Species
 
 p <- ggplot(pcaData, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
   ggtitle("PCA of gene expression") +
@@ -545,7 +545,7 @@ umap_df$Species <- expr_median$Species
 #plot
 p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   xlab("UMAP1") +
   ylab("UMAP2") +
   theme_minimal() +
@@ -757,7 +757,7 @@ curve_line <- curve_line[order(pcaData$Pseudotime), ]
 #pca plot with trajectory curve
 p_curve <- ggplot(pcaData, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
             color = "black", size = 1.2, alpha = 0.7) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
@@ -936,7 +936,7 @@ curve_line <- curve_line[order(umap_df$Pseudotime), ]
 
 p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   geom_path(
     data = curve_line,
     aes(x = UMAP1, y = UMAP2),
@@ -1155,7 +1155,7 @@ pcaData$Species <- residuals_median$Species
 
 p <- ggplot(pcaData, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
   ggtitle("PCA of gene expression (removed species effect)") +
@@ -1191,32 +1191,6 @@ print(p)
 ggsave("/home/cluster_user/Magisterka/plots/PCA_all_stage.png",
        p, width = 11, height = 8, dpi = 300)
 
-```
-
-#### test
-
-```{r}
-# dist_res  <- dist(t(residuals_mat))
-# 
-# bd_stage <- betadisper(dist_res, metadata$Stage2)
-# anova(bd_stage)
-# 
-# bd_species <- betadisper(dist_res, metadata$Species)
-# anova(bd_species)
-# 
-# adonis2(dist_mat ~ Stage2 + Species, data = metadata, permutations = 999, by = "margin")
-# adonis2(dist_res  ~ Stage2 + Species, data = metadata, permutations = 999, by = "margin")
-# 
-# p_before <- sapply(1:nrow(vst_mat), function(i) {
-#   an <- anova(lm(vst_mat[i, ] ~ metadata$Stage2))
-#   an["metadata$Stage2","Pr(>F)"]
-# })
-# p_after <- sapply(1:nrow(residuals_mat), function(i) {
-#   an <- anova(lm(residuals_mat[i, ] ~ metadata$Stage2))
-#   an["metadata$Stage2","Pr(>F)"]
-# })
-# sum(p.adjust(p_before, "BH") < 0.05)
-# sum(p.adjust(p_after, "BH")  < 0.05)
 ```
 
 ### heatmap
@@ -1313,7 +1287,7 @@ umap_df$Species <- expr_median$Species
 #plot
 p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 4.5, max.overlaps = 1000, show.legend = FALSE) +
   xlab("UMAP1") +
   ylab("UMAP2") +
   ggtitle("UMAP of gene expression (removed species effect)") +
@@ -1348,7 +1322,47 @@ print(p)
 
 ggsave("/home/cluster_user/Magisterka/plots/UMAP_all_stage.png",
        p, width = 11, height = 8, dpi = 300)
+```
 
+```{r}
+#plot for poster
+p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 4.5) +
+  geom_text_repel(size = 5.5, max.overlaps = 1000, show.legend = FALSE) +
+  xlab("UMAP1") +
+  ylab("UMAP2") +
+  ggtitle("UMAP of gene expression (removed species effect)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 22, face = "bold"),
+    axis.title = element_text(size = 19, face = "bold"),
+    axis.text = element_text(size = 18),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 19, face = "bold")
+  )+
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "blattella" = 17,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "blattella" = expression(italic("B. germanica")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/UMAP_all_stage_big.png",
+       p, width = 11, height = 8, dpi = 300)
 ```
 
 ### cluster
@@ -1500,6 +1514,33 @@ print(p1)
 ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage.png",
        p1, width = 5, height = 5, dpi = 300)
 
+#---poster plot
+p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 17, face = "bold"),
+    axis.title = element_text(size = 16, face = "bold"),
+    axis.text = element_text(size = 15)
+    ) +
+  labs(
+    title = "Pseudotime by stage - PCA\n(removed species effect)",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage_big.png",
+       p1, width = 5, height = 5, dpi = 300)
+
+
+
 species_levels <- sort(c("blattella", "drosophila", "harmonia", "locusta", "plutella"))
 pcaData$Species <- factor(pcaData$Species, levels = species_levels)
 species_colors <- setNames(
@@ -1615,7 +1656,7 @@ curve_line <- curve_line[order(pcaData$Pseudotime), ]
 #pca plot with trajectory curve
 p_curve <- ggplot(pcaData, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
             color = "black", size = 1.2, alpha = 0.7) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
@@ -1799,7 +1840,7 @@ curve_line <- curve_line[order(umap_df$Pseudotime), ]
 #umap plot
 p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   geom_path(
     data = curve_line,
     aes(x = UMAP1, y = UMAP2),
@@ -1928,14 +1969,15 @@ p <- ggplot(nymph_comp, aes(x = Stage2_2, y = distance, fill = Stage2_2)) +
   theme_classic(base_size = 14) +
   labs(
     x = "Developmental stage",
-    y = "Spearman distance",
-    title = "Nymph distances to other developmental stages"
+    y = "Spearman distance to nymph",
+    title = "Nymphal similarity to holometabolic stages"
   ) +
-  theme(legend.position = "none")
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold"))
 
 print(p)
 ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_violin.png",
-       p, width = 8, height = 5, dpi = 300)
+       p, width = 7, height = 5, dpi = 300)
 ```
 
 #### early vs late
@@ -1943,46 +1985,45 @@ ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_violin.png",
 ##### prepupa
 
 ```{r}
-#Early vs late nymph instars; locusta 1,2,3,4,5 blattella: 1,3,5,6
-dist_df <- dist_df %>%
-  mutate(
-    NymphType1 = case_when(
-      instar_number %in% 1:3 ~ "Early",
-      instar_number %in% 4:6 ~ "Late",
-      TRUE ~ NA_character_
-    ),
-    NymphType1 = factor(NymphType1, levels = c("Early", "Late"))
-  )
-
-nymph_trend <- dist_df %>%
-  filter(
-    Stage2_1 == "Nymph",
-    Stage2_2 == "Prepupa",
-    !is.na(NymphType1)
-  )
-
-p <- ggplot(nymph_trend, aes(x = NymphType1, y = distance)) +
-  geom_violin(trim = FALSE, alpha = 0.7) +
-  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
-  geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
-  theme_classic(base_size = 14) +
-  labs(
-    x = "Nymph instar type (1-3 vs 4-6)",
-    y = "Spearman distance to prepupa",
-    title = "Early vs late nymph distances to prepupa"
-  ) +
-  theme(legend.position = "right")
-
-print(p)
-ggsave("/home/cluster_user/Magisterka/plots/early_vs_late_prepupa.png",
-       p, width = 6, height = 5, dpi = 300)
-
-model_early_late <- lm(
-  distance ~ NymphType1 + Species2,
-  data = nymph_trend
-)
-anova(model_early_late)
-summary(model_early_late)
+#Early vs late nymphal instars; locusta 1,2,3,4,5 blattella: 1,3,5,6
+# dist_df <- dist_df %>%
+#   mutate(
+#     NymphType1 = case_when(
+#       instar_number %in% 1:3 ~ "Early",
+#       instar_number %in% 4:6 ~ "Late",
+#       TRUE ~ NA_character_
+#     ),
+#     NymphType1 = factor(NymphType1, levels = c("Early", "Late"))
+#   )
+# 
+# nymph_trend <- dist_df %>%
+#   filter(
+#     Stage2_1 == "Nymph",
+#     Stage2_2 == "Prepupa",
+#     !is.na(NymphType1)
+#   )
+# 
+# p <- ggplot(nymph_trend, aes(x = NymphType1, y = distance)) +
+#   geom_violin(trim = FALSE, alpha = 0.7) +
+#   geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+#   geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
+#   theme_classic(base_size = 14) +
+#   labs(
+#     x = "Nymphal instar category",
+#     y = "Spearman distance to prepupa",
+#     title = "Early vs late nymph distances to prepupa",
+#     color = "Nymph\nsample"
+#   ) +
+#   theme(legend.position = "right")
+# 
+# print(p)
+# ggsave("/home/cluster_user/Magisterka/plots/early_vs_late_prepupa.png",
+#        p, width = 6, height = 5, dpi = 300)
+# 
+# model_early_late <- lmer(distance ~ NymphType1 + (1 | Sample2),
+#                          data = nymph_trend)
+# summary(model_early_late)
+# emmeans(model_early_late, ~ NymphType1)
 
 #for more extreme stages
 dist_df <- dist_df %>%
@@ -2007,9 +2048,10 @@ p <- ggplot(nymph_trend_12_56, aes(x = NymphType1_12_56, y = distance)) +
   geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
   theme_classic(base_size = 14) +
   labs(
-    x = "Nymph instar type (1-2 vs 5-6)",
+    x = "Nymphal instar category",
     y = "Spearman distance to prepupa",
-    title = "Early vs late nymph distances to prepupa"
+    title = "Early vs late nymph distances to prepupa",
+    color = "Nymph\nsample"
   ) +
   theme(legend.position = "right")
 
@@ -2017,12 +2059,13 @@ print(p)
 ggsave("/home/cluster_user/Magisterka/plots/very_early_vs_late_prepupa.png",
        p, width = 6, height = 5, dpi = 300)
 
-model_extreme <- lm(
-  distance ~ NymphType1_12_56 + Species2,
-  data = nymph_trend_12_56
-)
-anova(model_extreme)
+model_extreme <- lmer(distance ~ NymphType1_12_56 + (1 | Sample2),
+                         data = nymph_trend_12_56)
 summary(model_extreme)
+emmeans(model_extreme, ~ NymphType1_12_56)
+
+emm <- emmeans(model_extreme, ~ NymphType1_12_56)
+summary(pairs(emm))
 
 #late nymphs are closer to prepupa
 ```
@@ -2030,36 +2073,35 @@ summary(model_extreme)
 ##### larva
 
 ```{r}
-nymph_trend <- dist_df %>%
-  filter(
-    Stage2_1 == "Nymph",
-    Stage2_2 == "Larva",
-    !is.na(NymphType1)
-  )
-
-p <- ggplot(nymph_trend, aes(x = NymphType1, y = distance)) +
-  geom_violin(trim = FALSE, alpha = 0.7) +
-  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
-  geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
-  theme_classic(base_size = 14) +
-  labs(
-    x = "Nymph instar type (1-3 vs 4-6)",
-    y = "Spearman distance to larva",
-    title = "Early vs late nymph distances to larva"
-  ) +
-  theme(legend.position = "right")
-
-print(p)
-ggsave("/home/cluster_user/Magisterka/plots/early_vs_late_larva.png",
-       p, width = 6, height = 5, dpi = 300)
-
-model_early_late <- lm(
-  distance ~ NymphType1 + Species2,
-  data = nymph_trend
-)
-anova(model_early_late)
-summary(model_early_late)
-
+# nymph_trend <- dist_df %>%
+#   filter(
+#     Stage2_1 == "Nymph",
+#     Stage2_2 == "Larva",
+#     !is.na(NymphType1)
+#   )
+# 
+# p <- ggplot(nymph_trend, aes(x = NymphType1, y = distance)) +
+#   geom_violin(trim = FALSE, alpha = 0.7) +
+#   geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+#   geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
+#   theme_classic(base_size = 14) +
+#   labs(
+#     x = "Nymphal instar category",
+#     y = "Spearman distance to larva",
+#     title = "Early vs late nymph distances to larva",
+#     color = "Nymph\nsample"
+#   ) +
+#   theme(legend.position = "right")
+# 
+# print(p)
+# ggsave("/home/cluster_user/Magisterka/plots/early_vs_late_larva.png",
+#        p, width = 6, height = 5, dpi = 300)
+# 
+# model_early_late <- lmer(distance ~ NymphType1 + (1 | Sample2),
+#                          data = nymph_trend)
+# summary(model_early_late)
+# emmeans(model_early_late, ~ NymphType1)
+# 
 #for more extreme stages
 dist_df <- dist_df %>%
   mutate(
@@ -2083,9 +2125,10 @@ p <- ggplot(nymph_trend_12_56, aes(x = NymphType1_12_56, y = distance)) +
   geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
   theme_classic(base_size = 14) +
   labs(
-    x = "Nymph instar type (1-2 vs 5-6)",
+    x = "Nymphal instar category",
     y = "Spearman distance to larva",
-    title = "Early vs late nymph distances to larva"
+    title = "Early vs late nymph distances to larva",
+    color = "Nymph\nsample"
   ) +
   theme(legend.position = "right")
 
@@ -2093,12 +2136,48 @@ print(p)
 ggsave("/home/cluster_user/Magisterka/plots/very_early_vs_late_larva.png",
        p, width = 6, height = 5, dpi = 300)
 
-model_extreme <- lm(
-  distance ~ NymphType1_12_56 + Species2,
-  data = nymph_trend_12_56
-)
-anova(model_extreme)
+model_extreme <- lmer(distance ~ NymphType1_12_56 + (1 | Sample2),
+                         data = nymph_trend_12_56)
 summary(model_extreme)
+emmeans(model_extreme, ~ NymphType1_12_56)
+
+emm <- emmeans(model_extreme, ~ NymphType1_12_56)
+summary(pairs(emm))
+
+# Linear mixed model fit by REML ['lmerMod']
+# Formula: distance ~ NymphType1_12_56 + (1 | Sample2)
+#    Data: nymph_trend_12_56
+# 
+# REML criterion at convergence: -40
+# 
+# Scaled residuals: 
+#     Min      1Q  Median      3Q     Max 
+# -1.8791 -0.7604 -0.1407  0.8021  2.0038 
+# 
+# Random effects:
+#  Groups   Name        Variance Std.Dev.
+#  Sample2  (Intercept) 0.001878 0.04334 
+#  Residual             0.031271 0.17684 
+# Number of obs: 84, groups:  Sample2, 14
+# 
+# Fixed effects:
+#                            Estimate Std. Error t value
+# (Intercept)                 0.92007    0.02964  31.038
+# NymphType1_12_56Late (5-6)  0.10233    0.03859   2.652
+# 
+# Correlation of Fixed Effects:
+#             (Intr)
+# NT1_12_56L( -0.651
+#  NymphType1_12_56 emmean     SE   df lower.CL upper.CL
+#  Early (1-2)        0.92 0.0296 35.5    0.860     0.98
+#  Late (5-6)         1.02 0.0296 35.5    0.962     1.08
+# 
+# Degrees-of-freedom method: kenward-roger 
+# Confidence level used: 0.95 
+#  contrast                     estimate     SE df t.ratio p.value
+#  (Early (1-2)) - (Late (5-6))   -0.102 0.0386 69  -2.652  0.0099
+# 
+# Degrees-of-freedom method: kenward-roger 
 
 #larva are closer to early nymphs
 ```
@@ -2106,35 +2185,34 @@ summary(model_extreme)
 ##### pupa
 
 ```{r}
-nymph_trend <- dist_df %>%
-  filter(
-    Stage2_1 == "Nymph",
-    Stage2_2 == "Pupa",
-    !is.na(NymphType1)
-  )
-
-p <- ggplot(nymph_trend, aes(x = NymphType1, y = distance)) +
-  geom_violin(trim = FALSE, alpha = 0.7) +
-  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
-  geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
-  theme_classic(base_size = 14) +
-  labs(
-    x = "Nymph instar type (1-3 vs 4-6)",
-    y = "Spearman distance to pupa",
-    title = "Early vs late nymph distances to pupa"
-  ) +
-  theme(legend.position = "right")
-
-print(p)
-ggsave("/home/cluster_user/Magisterka/plots/early_vs_late_pupa.png",
-       p, width = 6, height = 5, dpi = 300)
-
-model_early_late <- lm(
-  distance ~ NymphType1 + Species2,
-  data = nymph_trend
-)
-anova(model_early_late)
-summary(model_early_late)
+# nymph_trend <- dist_df %>%
+#   filter(
+#     Stage2_1 == "Nymph",
+#     Stage2_2 == "Pupa",
+#     !is.na(NymphType1)
+#   )
+# 
+# p <- ggplot(nymph_trend, aes(x = NymphType1, y = distance)) +
+#   geom_violin(trim = FALSE, alpha = 0.7) +
+#   geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+#   geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
+#   theme_classic(base_size = 14) +
+#   labs(
+#     x = "Nymphal instar category",
+#     y = "Spearman distance to pupa",
+#     title = "Early vs late nymph distances to pupa",
+#     color = "Nymph\nsample"
+#   ) +
+#   theme(legend.position = "right")
+# 
+# print(p)
+# ggsave("/home/cluster_user/Magisterka/plots/early_vs_late_pupa.png",
+#        p, width = 6, height = 5, dpi = 300)
+# 
+# model_early_late <- lmer(distance ~ NymphType1 + (1 | Sample2),
+#                          data = nymph_trend)
+# summary(model_early_late)
+# emmeans(model_early_late, ~ NymphType1)
 
 #for more extreme stages
 dist_df <- dist_df %>%
@@ -2159,9 +2237,10 @@ p <- ggplot(nymph_trend_12_56, aes(x = NymphType1_12_56, y = distance)) +
   geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6) +
   theme_classic(base_size = 14) +
   labs(
-    x = "Nymph instar type (1-2 vs 5-6)",
+    x = "Nymphal instar category",
     y = "Spearman distance to pupa",
-    title = "Early vs late nymph distances to pupa"
+    title = "Early vs late nymph distances to pupa",
+    color = "Nymph\nsample"
   ) +
   theme(legend.position = "right")
 
@@ -2169,14 +2248,94 @@ print(p)
 ggsave("/home/cluster_user/Magisterka/plots/very_early_vs_late_pupa.png",
        p, width = 6, height = 5, dpi = 300)
 
-model_extreme <- lm(
-  distance ~ NymphType1_12_56 + Species2,
-  data = nymph_trend_12_56
-)
-anova(model_extreme)
+model_extreme <- lmer(distance ~ NymphType1_12_56 + (1 | Sample2),
+                         data = nymph_trend_12_56)
 summary(model_extreme)
+emmeans(model_extreme, ~ NymphType1_12_56)
 
-#connection to nymph instars isnt significant
+emm <- emmeans(model_extreme, ~ NymphType1_12_56)
+summary(pairs(emm))
+
+#connection to nymphal instars isnt significant
+```
+
+##### combined plot
+
+```{r}
+combined_nymph <- dist_df %>%
+  mutate(
+    NymphType = case_when(
+      instar_number %in% c(1, 2) ~ "Early (1–2)",
+      instar_number %in% c(5, 6) ~ "Late (5–6)",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(
+    Stage2_1 == "Nymph",
+    Stage2_2 %in% c("Larva", "Prepupa", "Pupa"),
+    !is.na(NymphType)
+  )
+
+combined_nymph$Stage2_2 <- factor(
+  combined_nymph$Stage2_2,
+  levels = c("Larva", "Prepupa", "Pupa")
+)
+
+p_combined <- ggplot(combined_nymph,
+                     aes(x = NymphType, y = distance)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+  geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6, size = 1.2) +
+  facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Nymphal instar category",
+    y = "Spearman distance",
+    title = "Comparison of holometabolic stages distances to early and late nymphal instars",
+    color = "Nymph"
+  ) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 15, face = "bold"),
+    strip.text = element_text(face = "bold", size = 12),
+    axis.title = element_text(size = 13, face = "bold"),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 13),
+    legend.title = element_text(size = 12, face = "bold")
+  )
+
+print(p_combined)
+ggsave("/home/cluster_user/Magisterka/plots/very_early_vs_late_combined.png",
+       p_combined, width = 12, height = 5, dpi = 300)
+
+#---poster plot
+
+p_combined <- ggplot(combined_nymph,
+                     aes(x = NymphType, y = distance)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+  geom_jitter(aes(color = Sample1), width = 0.15, alpha = 0.6, size = 3) +
+  facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
+  theme_classic(base_size = 18) +
+  labs(
+    x = "Nymphal instar category",
+    y = "Spearman distance",
+    title = "Comparison of holometabolic stages distances\nto early and late nymphal instars",
+    color = "Nymph"
+  ) +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 22, face = "bold"),
+    strip.text = element_text(face = "bold", size = 16),
+    axis.title = element_text(size = 18, face = "bold"),
+    axis.text = element_text(size = 17),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 17, face = "bold")
+  )
+
+print(p_combined)
+ggsave("/home/cluster_user/Magisterka/plots/very_early_vs_late_combined_big.png",
+       p_combined, width = 12, height = 5, dpi = 300)
 ```
 
 #### instars
@@ -2205,10 +2364,12 @@ print(cor_results)
 # 2 Prepupa  -0.314     117 --> distance falls in next stages
 # 3 Pupa     -0.00894    99 --> only very small decrease, not visible
 
+# subset colors only for used stages
+stage_colors_sub <- stage_colors[c("Larva", "Prepupa", "Pupa")]
+
+# correlation labels
 cor_labels <- cor_results %>%
-  mutate(
-    label = paste0("rho == ", round(rho, 2))
-  )
+  mutate(label = paste0("rho = ", round(rho, 2)))
 
 p <- ggplot(trend_df, aes(instar_number, distance, color = Stage2_2)) +
   geom_point(alpha = 0.7, size = 2) +
@@ -2216,178 +2377,557 @@ p <- ggplot(trend_df, aes(instar_number, distance, color = Stage2_2)) +
   facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
   geom_text(
     data = cor_labels,
-    aes(
-      x = -Inf, y = Inf, label = label
-    ),
+    aes(x = -Inf, y = Inf, label = label),
     inherit.aes = FALSE,
     hjust = -0.1, vjust = 1.1,
-    size = 4,
-    parse = TRUE
+    size = 4
   ) +
-  scale_color_manual(values = stage_colors) +
+  scale_color_manual(values = stage_colors_sub) +
   theme_classic(base_size = 14) +
+  labs(
+    x = "Nymphal instar number",
+    y = "Spearman distance",
+    title = "Similarity to nymphal instars"
+  ) +
   theme(
     legend.position = "none",
-    strip.text = element_text(size = 13, face = "bold")
-  ) +
-  labs(
-    x = "Nymph instar number",
-    y = "Spearman distance",
-    title = "Distance to to other stages across nymphal development"
+    strip.text = element_text(size = 13, face = "bold"),
+    plot.title = element_text(face = "bold")
   )
-
-p <- ggplot(trend_df, aes(instar_number, distance, color = Stage2_2)) +
-  geom_point(alpha = 0.7, size = 2) +
-  geom_smooth(method = "lm", se = TRUE) +
-  facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
-  geom_text(
-    data = cor_results,
-    aes(x = -Inf, y = Inf, label = paste0("rho = ", round(rho, 2))),
-    inherit.aes = FALSE,
-    hjust = -0.1, vjust = 1.1
-  ) +
-  theme_classic()
 
 print(p)
 ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_instar.png",
-       p, width = 8, height = 5, dpi = 300)
+       p, width = 7, height = 5, dpi = 300)
+
+p_sample <- ggplot(trend_df, aes(instar_number, distance)) +
+  geom_point(aes(color = Sample1), alpha = 0.6, size = 2) +
+  geom_smooth(
+    method = "lm", se = TRUE, linewidth = 1.2
+  ) +
+  facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Nymphal instar number",
+    y = "Spearman distance",
+    title = "Similarity to nymphal instars",
+    color = "Nymph\nsample"
+  ) +
+  theme(
+    legend.position = "right",
+    strip.text = element_text(size = 13, face = "bold"),
+    plot.title = element_text(face = "bold")
+  )
+
+print(p_sample)
+
+ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_instar_sample.png",
+       p_sample, width = 9, height = 5, dpi = 300)
 ```
 
 #### models
 
 ```{r}
 lm_model <- lmer(distance ~ instar_number * Stage2_2 + (1 | Sample2), data = trend_df)
-anova(lm_model)
-print(lm_model)
+summary(lm_model)
 
-# Analysis of Variance Table
-#                        npar  Sum Sq  Mean Sq F value
-# instar_number             1 0.00072 0.000724  0.0277
-# Stage2_2                  2 0.18490 0.092452  3.5330
-# instar_number:Stage2_2    2 0.52726 0.263632 10.0746 --> big effect
+#(1 | Sample2) -> intercept for Sample2 (not parameter for each sample) -> accounts for replications of samples
+#(1 | Sample1) -> has variance close to 0, so i removed it
+#Species2 controls for variation between species ->> no, because it was already from residua then ---> MODEL1
+#lmer linear mixed-effects model  - fixed effects + random effects (sample related)
+
 # Linear mixed model fit by REML ['lmerMod']
 # Formula: distance ~ instar_number * Stage2_2 + (1 | Sample2)
 #    Data: trend_df
-# REML criterion at convergence: -224.0655
+# 
+# REML criterion at convergence: -224.1
+# 
+# Scaled residuals: 
+#      Min       1Q   Median       3Q      Max 
+# -2.10157 -0.76390  0.01936  0.75001  2.24429 
+# 
 # Random effects:
-#  Groups   Name        Std.Dev.
-#  Sample2  (Intercept) 0.03938 
-#  Residual             0.16177 
+#  Groups   Name        Variance Std.Dev.
+#  Sample2  (Intercept) 0.001551 0.03938 
+#  Residual             0.026168 0.16177 
 # Number of obs: 342, groups:  Sample2, 38
-# Fixed Effects:
-#(Intercept)                  instar_number                Stage2_2Prepupa  
-#0.90374                        0.02525                        0.20472  
-#Stage2_2Pupa  instar_number:Stage2_2Prepupa     instar_number:Stage2_2Pupa  
-#0.03501                       -0.05484                       -0.02538  
+# 
+# Fixed effects:
+#                                Estimate Std. Error t value
+# (Intercept)                    0.903741   0.033425  27.038
+# instar_number                  0.025250   0.008479   2.978
+# Stage2_2Prepupa                0.204722   0.048170   4.250
+# Stage2_2Pupa                   0.035013   0.050390   0.695
+# instar_number:Stage2_2Prepupa -0.054838   0.012219  -4.488
+# instar_number:Stage2_2Pupa    -0.025376   0.012782  -1.985
+# 
+# Correlation of Fixed Effects:
+#                     (Intr) instr_ Stg2_2Pr Stg2_2Pp instr_nmbr:Stg2_2Pr
+# instar_nmbr         -0.846                                             
+# Stag2_2Prpp         -0.694  0.587                                      
+# Stage2_2Pup         -0.663  0.561  0.460                               
+# instr_nmbr:Stg2_2Pr  0.587 -0.694 -0.846   -0.389                      
+# instr_nmbr:Stg2_2Pp  0.561 -0.663 -0.389   -0.846    0.460 
 
-lm_model2 <- lmer(distance ~ instar_number * Stage2_2 + Species2 + (1 | Sample2),
-                  data = trend_df) #<-- this should be the best (most correct) model
-#(1 | Sample2) -> intercept for Sample2 (not parameter for each sample) -> accounts for replications of samples
-#(1 | Sample1) -> has variance close to 0, so i removed it
-#Species2 controls for variation between species
-#lmer linear mixed-effects model  - fixed effects + random effects (sample related)
-anova(lm_model2)
-print(lm_model2)
+#  contrast        estimate     SE  df t.ratio p.value
+#  Larva - Prepupa   0.0548 0.0122 301   4.488 <0.0001
+#  Larva - Pupa      0.0254 0.0128 301   1.985  0.1176
+#  Prepupa - Pupa   -0.0295 0.0130 301  -2.267  0.0621
+# 
+# Degrees-of-freedom method: kenward-roger 
+# P value adjustment: tukey method for comparing a family of 3 estimates 
 
-# Analysis of Variance Table
-#                        npar  Sum Sq  Mean Sq F value
-# instar_number             1 0.00072 0.000724  0.0277
-# Stage2_2                  2 0.20075 0.100375  3.8358
-# Species2                  2 0.13082 0.065410  2.4996
-# instar_number:Stage2_2    2 0.52726 0.263632 10.0746 --> strong effect
-# Linear mixed model fit by REML ['lmerMod']
-# Formula: distance ~ instar_number * Stage2_2 + Species2 + (1 | Sample2)
-#    Data: trend_df
-# REML criterion at convergence: -217.6775
-# Random effects:
-#  Groups   Name        Std.Dev.
-#  Sample2  (Intercept) 0.03462 
-#  Residual             0.16177 
-# Number of obs: 342, groups:  Sample2, 38
-# Fixed Effects:
-#(Intercept)                  instar_number                Stage2_2Prepupa  
-#0.87659                        0.02525                        0.19863  
-#Stage2_2Pupa               Species2harmonia               Species2plutella  
-#0.03151                        0.05209                        0.04294  
-#instar_number:Stage2_2Prepupa     instar_number:Stage2_2Pupa  
-#-0.05484                       -0.02538  
+#  Stage2_2 instar_number.trend      SE  df lower.CL upper.CL t.ratio p.value
+#  Larva               0.025250 0.00848 301  0.00856   0.0419   2.978  0.0031
+#  Prepupa            -0.029588 0.00880 301 -0.04690  -0.0123  -3.363  0.0009
+#  Pupa               -0.000126 0.00957 301 -0.01895   0.0187  -0.013  0.9895
+# 
+# Degrees-of-freedom method: kenward-roger 
+# Confidence level used: 0.95 
 
-#larva +0.02525
-#prepupa +0.02525-0.05484=-0.02959
-#pupa +0.02525-0.02538=-0.00013
+emm <- emtrends(lm_model, ~ Stage2_2, var = "instar_number")
+print(summary(emm, infer = c(TRUE, TRUE)))
+contrast_results <- pairs(emm)
+print(contrast_results)
+
+trend_emm <- as.data.frame(emtrends(lm_model, ~ Stage2_2, var = "instar_number"))
+
+p_trend <- ggplot(trend_emm, aes(x = Stage2_2, y = instar_number.trend, color = Stage2_2)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+  scale_color_manual(values = stage_colors[c("Larva", "Prepupa", "Pupa")]) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Developmental stage",
+    y = "Change in distance per instar",
+    title = "Changes in similarity across nymphal instars"
+  ) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold")
+  )
+
+print(p_trend)
+
+ggsave("/home/cluster_user/Magisterka/plots/instar_trends_emmeans.png",
+       p_trend, width = 7, height = 5, dpi = 300)
 ```
 
 #### embryo
 
 ```{r}
-#is larva closer to embryo or nymph
+#compare embryo from hemi and holo separately
+hemi_species <- c("locusta", "blattella")
+holo_species <- c("harmonia", "plutella", "drosophila")
+
+dist_df <- dist_df %>%
+  mutate(
+    EmbryoType = case_when(
+      Stage2_2 == "Embryo" & Species2 %in% hemi_species ~ "Embryo_hemi",
+      Stage2_2 == "Embryo" & Species2 %in% holo_species ~ "Embryo_holo",
+      TRUE ~ Stage2_2
+    )
+  )
+
 embryo_test <- dist_df %>%
   filter(
     Stage2_1 == "Larva",
-    Stage2_2 %in% c("Embryo", "Nymph", "Prepupa", "Pupa")
+    EmbryoType %in% c("Embryo_hemi", "Embryo_holo", "Nymph", "Prepupa", "Pupa")
   )
 
-model <- lmer(distance ~ Stage2_2 + Species2 + (1 | Sample2), data = embryo_test)
+model <- lmer(distance ~ EmbryoType + (1 | Sample2), data = embryo_test)
+summary(model)
 
-anova(model)
-print(model)
-
-# Analysis of Variance Table
-#          npar Sum Sq Mean Sq F value
-# Stage2_2    3 1.8602 0.62006 22.7411 -----> strong effect
-# Species2    4 0.1172 0.02930  1.0746
 # Linear mixed model fit by REML ['lmerMod']
-# Formula: distance ~ Stage2_2 + Species2 + (1 | Sample2)
+# Formula: distance ~ EmbryoType + (1 | Sample2)
 #    Data: embryo_test
-# REML criterion at convergence: -395.8238
-# Random effects:
-#  Groups   Name        Std.Dev.
-#  Sample2  (Intercept) 0.05447 
-#  Residual             0.16512 
-# Number of obs: 616, groups:  Sample2, 44
-# Fixed Effects:
-#        (Intercept)       Stage2_2Nymph     Stage2_2Prepupa        Stage2_2Pupa  Species2drosophila  
-#            1.04049            -0.06651             0.13236             0.09133             0.01637  
-#   Species2harmonia     Species2locusta    Species2plutella  
-#            0.01746             0.02506             0.07888 
-
-# Larva–Embryo	1.040
-# Larva–Nymph	0.974
-# Larva–Prepupa	1.173
-# Larva–Pupa	1.131
-
-#larva is 0.06651 closer to nymph than to embryo --> Berlese-
-#also further to pre/pupa than to embryo 
-#closest to early nymph (connected to previous test) -> Hinton+
-#and it's okay larva are supposed to be higly specialised embryo in Berlese so they don't need to be super close, but then it shouldn't be closer to nymphs
-
-emmeans(model, pairwise ~ Stage2_2)
-
-# $emmeans
-#  Stage2_2 emmean     SE df lower.CL upper.CL
-#  Embryo     1.07 0.0263 36     1.01     1.12
-#  Nymph      1.00 0.0403 36     0.92     1.08
-#  Prepupa    1.20 0.0289 36     1.14     1.26
-#  Pupa       1.16 0.0296 36     1.10     1.22
 # 
-# Results are averaged over the levels of: Species2 
+# REML criterion at convergence: -406
+# 
+# Scaled residuals: 
+#      Min       1Q   Median       3Q      Max 
+# -2.97903 -0.71763 -0.02411  0.70653  2.56588 
+# 
+# Random effects:
+#  Groups   Name        Variance Std.Dev.
+#  Sample2  (Intercept) 0.003112 0.05578 
+#  Residual             0.027266 0.16512 
+# Number of obs: 616, groups:  Sample2, 44
+# 
+# Fixed effects:
+#                       Estimate Std. Error t value
+# (Intercept)            1.04049    0.03181  32.710
+# EmbryoTypeEmbryo_holo  0.01637    0.04307   0.380
+# EmbryoTypeNymph       -0.05258    0.03967  -1.325
+# EmbryoTypePrepupa      0.16838    0.03743   4.499
+# EmbryoTypePupa         0.12515    0.03836   3.262
+# 
+# Correlation of Fixed Effects:
+#             (Intr) EmbTE_ EmbrTN EmbryTypPr
+# EmbryTypEm_ -0.739                         
+# EmbryTypNym -0.802  0.592                  
+# EmbryTypPrp -0.850  0.628  0.681           
+# EmbryoTypPp -0.829  0.612  0.665  0.705    
+#  EmbryoType  emmean     SE df lower.CL upper.CL t.ratio p.value
+#  Embryo_hemi  1.040 0.0318 39    0.976     1.10  32.710 <0.0001
+#  Embryo_holo  1.057 0.0290 39    0.998     1.12  36.396 <0.0001
+#  Nymph        0.988 0.0237 39    0.940     1.04  41.668 <0.0001
+#  Prepupa      1.209 0.0197 39    1.169     1.25  61.279 <0.0001
+#  Pupa         1.166 0.0214 39    1.122     1.21  54.353 <0.0001
+# 
 # Degrees-of-freedom method: kenward-roger 
 # Confidence level used: 0.95 
+#  contrast                  estimate     SE df t.ratio p.value
+#  Embryo_hemi - Embryo_holo  -0.0164 0.0431 39  -0.380  0.9954
+#  Embryo_hemi - Nymph         0.0526 0.0397 39   1.325  0.6773
+    #  Embryo_hemi - Prepupa      -0.1684 0.0374 39  -4.499  0.0005
+    #  Embryo_hemi - Pupa         -0.1251 0.0384 39  -3.262  0.0184
+#  Embryo_holo - Nymph         0.0690 0.0375 39   1.839  0.3664
+    #  Embryo_holo - Prepupa      -0.1520 0.0351 39  -4.330  0.0009
+    #  Embryo_holo - Pupa         -0.1088 0.0361 39  -3.013  0.0345
+    #  Nymph - Prepupa            -0.2210 0.0308 39  -7.164 <0.0001
+    #  Nymph - Pupa               -0.1777 0.0320 39  -5.559 <0.0001
+#  Prepupa - Pupa              0.0432 0.0291 39   1.484  0.5788
 # 
-# $contrasts
-#  contrast         estimate     SE df t.ratio p.value
-#  Embryo - Nymph     0.0665 0.0470 36   1.414  0.4989 --> not significant
-#  Embryo - Prepupa  -0.1324 0.0405 36  -3.268  0.0122
-#  Embryo - Pupa     -0.0913 0.0405 36  -2.255  0.1280
-#  Nymph - Prepupa   -0.1989 0.0621 36  -3.204  0.0144
-#  Nymph - Pupa      -0.1578 0.0621 36  -2.543  0.0700
-#  Prepupa - Pupa     0.0410 0.0288 36   1.426  0.4919
-# 
-# Results are averaged over the levels of: Species2 
 # Degrees-of-freedom method: kenward-roger 
-# P value adjustment: tukey method for comparing a family of 4 estimates 
+# P value adjustment: tukey method for comparing a family of 5 estimates 
 
-#it's not significant that nymph is closer to larva than embryo but still Berlese needs that embryo is closer -> they are similar so it's still more Hinton where the transfers between stages are more fluid
+
+#larva is 0.closer to nymph than to embryo --> Berlese-
+#also further to pre/pupa than to embryo 
+#closest to early nymph (connected to previous test) -> Hinton+
+#and it's okay that larva are supposed to be higly specialised embryo in Berlese so they don't need to be super close, but then it shouldn't be closer to nymphs
+ 
+#it's not significant that nymph is closer to larva than embryo but still Berlese needs that embryo is closer -> they are similar 
+
+#so it's still more Hinton where the transfers between stages are more fluid
+
+#PLOTS
+embryo_test$EmbryoType <- factor(
+  embryo_test$EmbryoType,
+  levels = c("Embryo_hemi", "Embryo_holo", "Nymph", "Prepupa", "Pupa")
+)
+
+embryo_test$EmbryoType <- recode(
+  embryo_test$EmbryoType,
+  "Embryo_hemi" = "Embryo (hemi)",
+  "Embryo_holo" = "Embryo (holo)"
+)
+
+stage_colors_extended <- c(
+  "Embryo (hemi)" = "#009E5A",   # darker green
+  "Embryo (holo)" = "#33CC80",   # lighter green
+  "Nymph" = "#00A9FF",
+  "Prepupa" = "#C77CFF",
+  "Pupa" = "#FF61CC"
+)
+
+p <- ggplot(embryo_test, aes(x = EmbryoType, y = distance, fill = EmbryoType)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_boxplot(width = 0.15, fill = "white", outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.5, size = 1.5) +
+  scale_fill_manual(values = stage_colors_extended) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Developmental stage",
+    y = "Spearman distance to larva",
+    title = "Larval similarity across developmental stages"
+  ) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold")
+  )
+
+print(p)
+ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_embryo.png",
+       p, width = 8, height = 5, dpi = 300)
+
+#emmeans
+emm <- emmeans(model, ~ EmbryoType)
+print(summary(emm, infer = c(TRUE, TRUE)))
+contrast_results <- pairs(emm)
+print(contrast_results)
+
+emm_df <- as.data.frame(emmeans(model, ~ EmbryoType))
+
+# fix names
+emm_df$EmbryoType <- recode(
+  emm_df$EmbryoType,
+  "Embryo_hemi" = "Embryo (hemi)",
+  "Embryo_holo" = "Embryo (holo)"
+)
+
+emm_df$EmbryoType <- factor(
+  emm_df$EmbryoType,
+  levels = c("Embryo (hemi)", "Embryo (holo)", "Nymph", "Prepupa", "Pupa")
+)
+
+p_emm <- ggplot(emm_df, aes(x = EmbryoType, y = emmean, color = EmbryoType)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+  scale_color_manual(values = stage_colors_extended) +
+  theme_classic(base_size = 17.5) +
+  labs(
+    x = "Developmental stage",
+    y = "Estimated Spearman distance",
+    title = "Larval relationships across stages"
+  ) +
+  theme(
+    legend.position = "none",
+    #axis.text.x = element_text(angle = 30, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+    axis.title = element_text(size = 15, face = "bold"),
+    axis.text = element_text(size = 13)
+  )
+
+print(p_emm)
+
+ggsave("/home/cluster_user/Magisterka/plots/emmeans_larva.png",
+       p_emm, width = 8, height = 5, dpi = 300)
+```
+
+```{r}
+stage_colors_extended <- c(
+  "Embryo\n(hemi)" = "#009E5A",   # darker green
+  "Embryo\n(holo)" = "#33CC80",   # lighter green
+  "Nymph" = "#00A9FF",
+  "Prepupa" = "#C77CFF",
+  "Pupa" = "#FF61CC"
+)
+
+emm <- emmeans(model, ~ EmbryoType)
+print(summary(emm, infer = c(TRUE, TRUE)))
+contrast_results <- pairs(emm)
+print(contrast_results)
+
+emm_df <- as.data.frame(emmeans(model, ~ EmbryoType))
+
+emm_df$EmbryoType <- recode(
+  emm_df$EmbryoType,
+  "Embryo_hemi" = "Embryo\n(hemi)",
+  "Embryo_holo" = "Embryo\n(holo)"
+)
+
+emm_df$EmbryoType <- factor(
+  emm_df$EmbryoType,
+  levels = c("Embryo\n(hemi)", "Embryo\n(holo)", "Nymph", "Prepupa", "Pupa")
+)
+
+#--poster plot
+p_emm <- ggplot(emm_df, aes(x = EmbryoType, y = emmean, color = EmbryoType)) +
+  geom_point(size = 4) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+  scale_color_manual(values = stage_colors_extended) +
+  theme_classic(base_size = 18) +
+  labs(
+    x = "Developmental stage",
+    y = "Estimated Spearman distance",
+    title = "Larval relationships across stages"
+  ) +
+  theme(
+    legend.position = "none",
+    #axis.text.x = element_text(angle = 30, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 22, face = "bold"),
+    axis.title = element_text(size = 18, face = "bold"),
+    axis.text = element_text(size = 17)
+  )
+
+print(p_emm)
+
+ggsave("/home/cluster_user/Magisterka/plots/emmeans_larva_big.png",
+       p_emm, width = 8, height = 5, dpi = 300)
+```
+
+### all
+
+```{r}
+# create separate dataframe for heatmap
+heatmap_dist_df <- dist_df %>%
+  mutate(
+    Stage2_1 = case_when(
+      Stage2_1 == "Embryo" & Species1 %in% hemi_species ~ "Embryo (hemi)",
+      Stage2_1 == "Embryo" & Species1 %in% holo_species ~ "Embryo (holo)",
+      TRUE ~ Stage2_1
+    ),
+    
+    Stage2_2 = case_when(
+      Stage2_2 == "Embryo" & Species2 %in% hemi_species ~ "Embryo (hemi)",
+      Stage2_2 == "Embryo" & Species2 %in% holo_species ~ "Embryo (holo)",
+      TRUE ~ Stage2_2
+    )
+  )
+
+# calculate median distances between stage pairs
+heatmap_df <- heatmap_dist_df %>%
+  group_by(Stage2_1, Stage2_2) %>%
+  summarise(
+    median_distance = median(distance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# order stages
+stage_order <- c(
+  "Eggs",
+  "Embryo (hemi)",
+  "Embryo (holo)",
+  "Nymph",
+  "Larva",
+  "Prepupa",
+  "Pupa",
+  "Adult Female",
+  "Adult Male"
+)
+
+# keep only lower triangle
+heatmap_df <- heatmap_df %>%
+  mutate(
+    x_id = match(Stage2_1, stage_order),
+    y_id = match(Stage2_2, stage_order)
+  ) %>%
+  filter(y_id >= x_id)
+
+heatmap_df$Stage2_1 <- factor(heatmap_df$Stage2_1, levels = stage_order)
+heatmap_df$Stage2_2 <- factor(heatmap_df$Stage2_2, levels = rev(stage_order))
+
+# heatmap
+p_heatmap <- ggplot(
+  heatmap_df,
+  aes(x = Stage2_1, y = Stage2_2, fill = median_distance)
+) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(median_distance, 2)), size = 4) +
+
+  scale_fill_gradient2(
+    low = "#2166AC",     # more similar
+    mid = "white",       # neutral (distance = 1)
+    high = "#B2182B",    # more divergent
+    midpoint = 1,
+    limits = c(0.5, 1.5),
+    name = "Median\nSpearman\ndistance"
+  ) +
+
+  coord_fixed() +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Stage 1",
+    y = "Stage 2",
+    title = "Transcriptomic distances\nbetween developmental stages"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+print(p_heatmap)
+
+ggsave(
+  "/home/cluster_user/Magisterka/plots/stage_distance_heatmap.png",
+  p_heatmap,
+  width = 7,
+  height = 6,
+  dpi = 300
+)
+```
+
+### partial correlation
+
+```{r}
+cor_matrix <- cor(t(expr_dist), method = "spearman")
+
+#partial correlation
+inv_cor <- solve(cor_matrix)
+pcor <- -cov2cor(inv_cor)
+
+pcor_df <- as.data.frame(as.table(pcor))
+colnames(pcor_df) <- c("Sample1", "Sample2", "distance")
+
+# Join metadata for Sample1
+pcor_df <- pcor_df %>%
+  left_join(meta, by = c("Sample1" = "Sample2")) %>%
+  rename(Stage1 = Stage,
+         Stage2_1 = Stage2,
+         Species1 = Species)
+
+# Join metadata for Sample2
+pcor_df <- pcor_df %>%
+  left_join(meta, by = c("Sample2" = "Sample2")) %>%
+  rename(Stage2 = Stage,
+         Stage2_2 = Stage2,
+         Species2 = Species)
+
+# Remove self-comparisons
+pcor_df <- pcor_df %>% filter(Sample1 != Sample2)
+
+# divide embryo
+pcor_df <- pcor_df %>%
+  mutate(
+    Stage2_1 = case_when(
+      Stage2_1 == "Embryo" & Species1 %in% hemi_species ~ "Embryo (hemi)",
+      Stage2_1 == "Embryo" & Species1 %in% holo_species ~ "Embryo (holo)",
+      TRUE ~ Stage2_1
+    ),
+    
+    Stage2_2 = case_when(
+      Stage2_2 == "Embryo" & Species2 %in% hemi_species ~ "Embryo (hemi)",
+      Stage2_2 == "Embryo" & Species2 %in% holo_species ~ "Embryo (holo)",
+      TRUE ~ Stage2_2
+    )
+  )
+
+# calculate median distances between stage pairs
+pcor_df <- pcor_df %>%
+  group_by(Stage2_1, Stage2_2) %>%
+  summarise(
+    median_distance = median(distance, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# keep only lower triangle
+pcor_df <- pcor_df %>%
+  mutate(
+    x_id = match(Stage2_1, stage_order),
+    y_id = match(Stage2_2, stage_order)
+  ) %>%
+  filter(y_id >= x_id)
+
+pcor_df$Stage2_1 <- factor(pcor_df$Stage2_1, levels = stage_order)
+pcor_df$Stage2_2 <- factor(pcor_df$Stage2_2, levels = rev(stage_order))
+
+# heatmap
+p_heatmap <- ggplot(
+  pcor_df,
+  aes(x = Stage2_1, y = Stage2_2, fill = median_distance)
+) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(median_distance, 2)), size = 4) +
+
+  scale_fill_gradient2(
+    low = "#2166AC",     # more similar
+    mid = "white",       # neutral (distance = 1)
+    high = "#B2182B",    # more divergent
+    midpoint = 0,
+    limits = c(-1, 1),
+    name = "Median\npartial\ncorrelation"
+  ) +
+
+  coord_fixed() +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Stage 1",
+    y = "Stage 2",
+    title = "Partial Spearman correlation\nbetween developmental stages"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+print(p_heatmap)
+
+ggsave(
+  "/home/cluster_user/Magisterka/plots/partial_heatmap.png",
+  p_heatmap,
+  width = 7,
+  height = 6,
+  dpi = 300
+)
 ```
 
 ## no embryo&adults
@@ -2469,7 +3009,7 @@ stage_colors <- setNames(scales::hue_pal()(length(stages_order) + 4)[5:(length(s
 
 p <- ggplot(pcaData, aes(PC1, PC2, color = Stage2, shape = Species, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
   ggtitle("PCA of gene expression (removed species effect, chosen stages)") +
@@ -2596,7 +3136,7 @@ umap_df$Species <- expr_median$Species
 #plot
 p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   xlab("UMAP1") +
   ylab("UMAP2") +
   ggtitle("UMAP of gene expression (removed species effect, chosen stages)") +
@@ -2631,6 +3171,48 @@ p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = 
 print(p)
 
 ggsave("/home/cluster_user/Magisterka/plots/UMAP_no_e_stage.png",
+       p, width = 11, height = 8, dpi = 300)
+```
+
+```{r}
+#---- poster plot
+p <- ggplot(umap_df, aes(UMAP1, UMAP2, color = Stage2, shape = Species, label = Sample2)) +
+  geom_point(size = 4.5) +
+  geom_text_repel(size = 5.5, max.overlaps = 1000, show.legend = FALSE) +
+  xlab("UMAP1") +
+  ylab("UMAP2") +
+  ggtitle("UMAP of gene expression\n(removed species effect, chosen stages)") +
+  theme_minimal() +
+  labs(color = "Stage", shape = "Species") +
+  theme(
+    legend.position = "right",
+    plot.title = element_text(hjust = 0.5, size = 22, face = "bold"),
+    axis.title = element_text(size = 19, face = "bold"),
+    axis.text = element_text(size = 18),
+    legend.text = element_text(size = 18),
+    legend.title = element_text(size = 19, face = "bold")
+  )+
+  scale_color_manual(values = stage_colors)+
+  scale_shape_manual(
+    values = c(
+      "drosophila" = 16,
+      "blattella" = 17,
+      "plutella" = 15,
+      "locusta" = 3,
+      "harmonia" = 7
+    ),
+    labels = c(
+      "drosophila" = expression(italic("D. melanogaster")),
+      "blattella" = expression(italic("B. germanica")),
+      "plutella" = expression(italic("P. xylostella")),
+      "locusta" = expression(italic("L. migratoria")),
+      "harmonia" = expression(italic("H. axyridis"))
+    )
+  )
+
+print(p)
+
+ggsave("/home/cluster_user/Magisterka/plots/UMAP_no_e_stage_big.png",
        p, width = 11, height = 8, dpi = 300)
 ```
 
@@ -2896,7 +3478,7 @@ curve_line <- curve_line[order(pcaData$Pseudotime), ]
 #pca plot with trajectory curve
 p_curve <- ggplot(pcaData, aes(x = PC1, y = PC2, color = Pseudotime, shape = Stage2, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   geom_path(data = curve_line, aes(x = PC1, y = PC2), inherit.aes = FALSE, 
             color = "black", size = 1.2, alpha = 0.7) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
@@ -3050,7 +3632,7 @@ curve_line <- curve_line[order(umap_df$Pseudotime), ]
 #umap plot
 p_umap_curve <- ggplot(umap_df, aes(x = UMAP1, y = UMAP2, color = Pseudotime, shape = Stage2, label = Sample2)) +
   geom_point(size = 2.5) +
-  geom_text_repel(size = 3.5, max.overlaps = 1000) +
+  geom_text_repel(size = 3.5, max.overlaps = 1000, show.legend = FALSE) +
   geom_path(
     data = curve_line,
     aes(x = UMAP1, y = UMAP2),
