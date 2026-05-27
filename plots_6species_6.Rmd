@@ -624,9 +624,30 @@ species_colors <- setNames(
 
 #distribution of pseudotime values across developmental stages
 p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
     name = "Stage",
     values = stage_colors
   ) +
@@ -649,9 +670,35 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage_species.png",
 
 #Pseudotime by stage and speciess across stages and species
 p2 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.3,
+      dodge.width = 0.8
+    ),
+    aes(fill = Species),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Species, group = Species),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 12,
+    position = position_dodge(width = 0.8),
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  scale_color_manual(
     values = RColorBrewer::brewer.pal(5, "Set1"),
     breaks = names(species_labels),
     labels = species_labels
@@ -693,7 +740,7 @@ p2_clean <- p2 +
 
 #combined p1 and p2
 combined <- p1_clean + p2_clean +
-  plot_layout(ncol = 2, widths = c(1, 1)) +
+  plot_layout(ncol = 2, widths = c(1, 1.5)) +
   plot_annotation(
     title = "Pseudotime distribution - PCA",
     theme = theme(
@@ -744,6 +791,54 @@ p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Spec
 print(p3)
 ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_all_stage_species.png",
        p3, width = 11, height = 8, dpi = 300)
+```
+
+#### stats
+
+```{r}
+pseudo_stats <- pcaData %>%
+  group_by(Stage2) %>%
+  summarise(
+    n = n(),
+    median = median(Pseudotime),
+    mean = mean(Pseudotime),
+    sd = sd(Pseudotime),
+    min = min(Pseudotime),
+    max = max(Pseudotime),
+    Q1 = quantile(Pseudotime, 0.25),
+    Q3 = quantile(Pseudotime, 0.75),
+    .groups = "drop"
+  )
+
+print(pseudo_stats)
+
+pseudo_species <- pcaData %>%
+  group_by(Stage2, Species) %>%
+  summarise(
+    median = median(Pseudotime),
+    min = min(Pseudotime),
+    max = max(Pseudotime),
+    .groups = "drop"
+  )
+
+print(pseudo_species)
+
+sorted_samples <- pcaData %>%
+  arrange(Pseudotime) %>%
+  select(Sample2, Species, Stage2, Pseudotime)
+
+print(head(sorted_samples, 10))
+print(tail(sorted_samples, 10))
+
+stages_by_variation <- pcaData %>%
+  group_by(Stage2) %>%
+  summarise(
+    range = max(Pseudotime) - min(Pseudotime),
+    sd = sd(Pseudotime)
+  ) %>%
+  arrange(desc(range))
+
+print(stages_by_variation)
 ```
 
 #### pca
@@ -815,9 +910,30 @@ if (cor_test < 0) {
 }
 
 p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
     name = "Stage",
     values = stage_colors
   ) +
@@ -839,9 +955,35 @@ print(p1)
 ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_stage_species.png", p1, width = 5, height = 5, dpi = 300)
 
 p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.3,
+      dodge.width = 0.8
+    ),
+    aes(fill = Species),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Species, group = Species),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 12,
+    position = position_dodge(width = 0.8),
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  scale_color_manual(
     values = RColorBrewer::brewer.pal(5, "Set1"),
     breaks = names(species_labels),
     labels = species_labels
@@ -881,7 +1023,7 @@ p2_clean <- p2 +
 
 #combined p1 and p2
 combined <- p1_clean + p2_clean +
-  plot_layout(ncol = 2, widths = c(1, 1)) +
+  plot_layout(ncol = 2, widths = c(1, 1.5)) +
   plot_annotation(
     title = "Pseudotime distribution - UMAP",
     theme = theme(
@@ -1489,9 +1631,30 @@ if (cor_test < 0) {
 }
 
 p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
     name = "Stage",
     values = stage_colors
   ) +
@@ -1514,33 +1677,6 @@ print(p1)
 ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage.png",
        p1, width = 5, height = 5, dpi = 300)
 
-#---poster plot
-p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
-  theme_minimal() +
-  scale_fill_manual(
-    name = "Stage",
-    values = stage_colors
-  ) +
-  theme(
-    axis.text.x = element_text(angle = 30, hjust = 1),
-    legend.position = "none",
-    plot.title = element_text(hjust = 0.5, size = 17, face = "bold"),
-    axis.title = element_text(size = 16, face = "bold"),
-    axis.text = element_text(size = 15)
-    ) +
-  labs(
-    title = "Pseudotime by stage - PCA\n(removed species effect)",
-    y = "Pseudotime (normalized)",
-    x = "Developmental stage"
-  )
-
-print(p1)
-ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage_big.png",
-       p1, width = 5, height = 5, dpi = 300)
-
-
-
 species_levels <- sort(c("blattella", "drosophila", "harmonia", "locusta", "plutella"))
 pcaData$Species <- factor(pcaData$Species, levels = species_levels)
 species_colors <- setNames(
@@ -1549,11 +1685,37 @@ species_colors <- setNames(
 )
 
 p2 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.3,
+      dodge.width = 0.8
+    ),
+    aes(fill = Species),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Species, group = Species),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 12,
+    position = position_dodge(width = 0.8),
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
-    values = species_colors,
-    #breaks = names(species_labels),
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  scale_color_manual(
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
     labels = species_labels
   ) +
   theme(
@@ -1593,7 +1755,7 @@ p2_clean <- p2 +
 
 #combined p1 and p2
 combined <- p1_clean + p2_clean +
-  plot_layout(ncol = 2, widths = c(1, 1)) +
+  plot_layout(ncol = 2, widths = c(1, 1.5)) +
   plot_annotation(
     title = "Pseudotime distribution - PCA (removed species effect)",
     theme = theme(
@@ -1643,6 +1805,104 @@ p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Spec
 print(p3)
 ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_all_stage.png",
        p3, width = 11, height = 8, dpi = 300)
+```
+
+poster
+
+```{r}
+#---poster plot
+p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
+  theme_minimal() +
+  scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 30, hjust = 1),
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, size = 17, face = "bold"),
+    axis.title = element_text(size = 16, face = "bold"),
+    axis.text = element_text(size = 15)
+    ) +
+  labs(
+    title = "Pseudotime by stage - PCA\n(removed species effect)",
+    y = "Pseudotime (normalized)",
+    x = "Developmental stage"
+  )
+
+print(p1)
+ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage_big.png",
+       p1, width = 5, height = 5, dpi = 300)
+```
+
+#### stats
+
+```{r}
+pseudo_stats <- pcaData %>%
+  group_by(Stage2) %>%
+  summarise(
+    n = n(),
+    median = median(Pseudotime),
+    mean = mean(Pseudotime),
+    sd = sd(Pseudotime),
+    min = min(Pseudotime),
+    max = max(Pseudotime),
+    Q1 = quantile(Pseudotime, 0.25),
+    Q3 = quantile(Pseudotime, 0.75),
+    .groups = "drop"
+  )
+
+print(pseudo_stats)
+
+pseudo_species <- pcaData %>%
+  group_by(Stage2, Species) %>%
+  summarise(
+    median = median(Pseudotime),
+    min = min(Pseudotime),
+    max = max(Pseudotime),
+    .groups = "drop"
+  )
+
+print(pseudo_species)
+
+sorted_samples <- pcaData %>%
+  arrange(Pseudotime) %>%
+  select(Sample2, Species, Stage2, Pseudotime)
+
+print(head(sorted_samples, 10))
+print(tail(sorted_samples, 10))
+
+stages_by_variation <- pcaData %>%
+  group_by(Stage2) %>%
+  summarise(
+    range = max(Pseudotime) - min(Pseudotime),
+    sd = sd(Pseudotime)
+  ) %>%
+  arrange(desc(range))
+
+print(stages_by_variation)
 ```
 
 #### pca
@@ -1716,9 +1976,30 @@ if (cor_test < 0) {
 
 #pseudotime vs stage
 p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
     name = "Stage",
     values = stage_colors
   ) +
@@ -1741,9 +2022,35 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_all_stage.png", p1,
 
 #pseudotime vs stage+species
 p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.3,
+      dodge.width = 0.8
+    ),
+    aes(fill = Species),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Species, group = Species),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 12,
+    position = position_dodge(width = 0.8),
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  scale_color_manual(
     values = RColorBrewer::brewer.pal(5, "Set1"),
     breaks = names(species_labels),
     labels = species_labels
@@ -1783,7 +2090,7 @@ p2_clean <- p2 +
 
 #combined p1 and p2
 combined <- p1_clean + p2_clean +
-  plot_layout(ncol = 2, widths = c(1, 1)) +
+  plot_layout(ncol = 2, widths = c(1, 1.5)) +
   plot_annotation(
     title = "Pseudotime distribution - UMAP (removed species effect)",
     theme = theme(
@@ -1970,10 +2277,11 @@ p <- ggplot(nymph_comp, aes(x = Stage2_2, y = distance, fill = Stage2_2)) +
   labs(
     x = "Developmental stage",
     y = "Spearman distance to nymph",
-    title = "Nymphal similarity to holometabolic stages"
+    title = "Nymphal distances to holometabolic stages"
   ) +
   theme(legend.position = "none",
-        plot.title = element_text(face = "bold"))
+        plot.title = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"))
 
 print(p)
 ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_violin.png",
@@ -2499,11 +2807,12 @@ p_trend <- ggplot(trend_emm, aes(x = Stage2_2, y = instar_number.trend, color = 
   labs(
     x = "Developmental stage",
     y = "Change in distance per instar",
-    title = "Changes in similarity across nymphal instars"
+    title = "Changes in distances across nymphal instars"
   ) +
   theme(
     legend.position = "none",
-    plot.title = element_text(face = "bold")
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold")
   )
 
 print(p_trend)
@@ -2630,11 +2939,12 @@ p <- ggplot(embryo_test, aes(x = EmbryoType, y = distance, fill = EmbryoType)) +
   labs(
     x = "Developmental stage",
     y = "Spearman distance to larva",
-    title = "Larval similarity across developmental stages"
+    title = "Larval distance to developmental stages"
   ) +
   theme(
     legend.position = "none",
-    plot.title = element_text(face = "bold")
+    plot.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold")
   )
 
 print(p)
@@ -3336,10 +3646,31 @@ if (cor_test < 0) {
   pcaData$Pseudotime <- 1 - pcaData$Pseudotime
 }
 
-p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+p1 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, color = Stage2)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
     name = "Stage",
     values = stage_colors
   ) +
@@ -3369,10 +3700,36 @@ species_colors <- setNames(
   species_levels
 )
 
-p2 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+p2 <- ggplot(pcaData, aes(x = Stage2, y = Pseudotime, color = Species)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.3,
+      dodge.width = 0.8
+    ),
+    aes(fill = Species),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Species, group = Species),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 12,
+    position = position_dodge(width = 0.8),
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  scale_color_manual(
     values = RColorBrewer::brewer.pal(5, "Set1"),
     breaks = names(species_labels),
     labels = species_labels
@@ -3414,7 +3771,7 @@ p2_clean <- p2 +
 
 #combined p1 and p2
 combined <- p1_clean + p2_clean +
-  plot_layout(ncol = 2, widths = c(1, 1)) +
+  plot_layout(ncol = 2, widths = c(1, 1.5)) +
   plot_annotation(
     title = "Pseudotime distribution - PCA (removed species effect, chosen stages)",
     theme = theme(
@@ -3465,6 +3822,54 @@ p3 <- ggplot(pseudotime_summary, aes(x = Stage2, y = median_pseudo, group = Spec
 print(p3)
 ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_no_stage.png",
        p3, width = 11, height = 8, dpi = 300)
+```
+
+#### stats
+
+```{r}
+pseudo_stats <- pcaData %>%
+  group_by(Stage2) %>%
+  summarise(
+    n = n(),
+    median = median(Pseudotime),
+    mean = mean(Pseudotime),
+    sd = sd(Pseudotime),
+    min = min(Pseudotime),
+    max = max(Pseudotime),
+    Q1 = quantile(Pseudotime, 0.25),
+    Q3 = quantile(Pseudotime, 0.75),
+    .groups = "drop"
+  )
+
+print(pseudo_stats)
+
+pseudo_species <- pcaData %>%
+  group_by(Stage2, Species) %>%
+  summarise(
+    median = median(Pseudotime),
+    min = min(Pseudotime),
+    max = max(Pseudotime),
+    .groups = "drop"
+  )
+
+print(pseudo_species)
+
+sorted_samples <- pcaData %>%
+  arrange(Pseudotime) %>%
+  select(Sample2, Species, Stage2, Pseudotime)
+
+print(head(sorted_samples, 10))
+print(tail(sorted_samples, 10))
+
+stages_by_variation <- pcaData %>%
+  group_by(Stage2) %>%
+  summarise(
+    range = max(Pseudotime) - min(Pseudotime),
+    sd = sd(Pseudotime)
+  ) %>%
+  arrange(desc(range))
+
+print(stages_by_variation)
 ```
 
 #### pca
@@ -3538,9 +3943,30 @@ if (cor_test < 0) {
 
 #pseudotime vs stage
 p1 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Stage2)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_point(
+    position = position_jitter(width = 0.3),
+    aes(fill = Stage2),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Stage2),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 14,
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    name = "Stage",
+    values = stage_colors
+  ) +
+  scale_color_manual(
     name = "Stage",
     values = stage_colors
   ) +
@@ -3563,9 +3989,35 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_umap_no_stage.png", p1, 
 
 #pseudotime vs stage+species
 p2 <- ggplot(umap_df, aes(x = Stage2, y = Pseudotime, fill = Species)) +
-  geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  #geom_boxplot(outlier.shape = NA, alpha = 0.8, position = position_dodge(0.8)) +
+  geom_point(
+    position = position_jitterdodge(
+      jitter.width = 0.3,
+      dodge.width = 0.8
+    ),
+    aes(fill = Species),
+    shape = 21,
+    color = "black",
+    stroke = 0.3,
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  stat_summary(
+    aes(color = Species, group = Species),
+    fun = median,
+    geom = "point",
+    shape = 95,
+    size = 12,
+    position = position_dodge(width = 0.8),
+    alpha = 0.8
+  ) +
   theme_minimal() +
   scale_fill_manual(
+    values = RColorBrewer::brewer.pal(5, "Set1"),
+    breaks = names(species_labels),
+    labels = species_labels
+  ) +
+  scale_color_manual(
     values = RColorBrewer::brewer.pal(5, "Set1"),
     breaks = names(species_labels),
     labels = species_labels
@@ -3683,7 +4135,7 @@ p2_clean <- p2 +
 
 #combined p1 and p2
 combined <- p1_clean + p2_clean +
-  plot_layout(ncol = 2, widths = c(1, 1)) +
+  plot_layout(ncol = 2, widths = c(1, 1.5)) +
   plot_annotation(
     title = "Pseudotime distribution - UMAP (removed species effect, chosen stages)",
     theme = theme(
