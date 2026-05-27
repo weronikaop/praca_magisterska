@@ -1,5 +1,5 @@
 ---
-title: "8. go + kegg analysis"
+title: "8. gene ontology analysis"
 format:
   html:
     embed-resources: true
@@ -28,19 +28,19 @@ editor: visual
 ```
 
 | **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
-|----|----|----|----|----|----|----|----|----|----|----|
+|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 | drosophila_proteins.fa | 13955 (proteins) | 7321147 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
 
 | **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
-|----|----|----|----|----|----|----|----|----|----|----|
+|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 | harmonia_proteins.fa | 25685 (proteins) | 9811406 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
 
 | **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
-|----|----|----|----|----|----|----|----|----|----|----|
+|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|-------|
 | plutella_proteins.fa | 29185 (proteins) | 9739172 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
 
 | **Date created** | **File** | **Sequences (type)** | **Total length** | **Min. hit e-value** | **Min. hit bit-score** | **Min. % of identity** | **Min. % of query cov.** | **Min. % of subject cov.** | **Tax. scope** | **Orth. restrictions** | **GO evidence** |
-|----|----|----|----|----|----|----|----|----|----|----|----|
+|------|------|------|------|------|------|------|------|------|------|------|------|
 | 09/24/25 | blattella_proteins.fa.gz | 28106 (proteins) | 9442452 | 0.001 | 60 | 40 | 20 | 20 | auto | all | non-electronic |
 
 # libraries
@@ -3276,7 +3276,7 @@ run_stage_go_enrichment <- function(deg_list, eggnog_table) {
                       algorithm = "weight01",
                       statistic = "fisher")
 
-    # store EVERYTHING needed for plotting graph
+    # store all needed for plotting graph
     stage_topGO_objects[[st]] <- list(
       GOdata = GOdata,
       result = result,
@@ -3298,15 +3298,15 @@ run_stage_go_enrichment <- function(deg_list, eggnog_table) {
 plot_stage_go_results <- function(stage_go_results,
                                   deg_list,
                                   top_n = 30,
-                                  min_level = 3,
-                                  max_level = 4,
+                                  min_level = 4,
+                                  max_level = 5,
                                   output_dir = NULL,
                                   prefix = "GO") {
 
   # map short species id to labels
   species_labels <- c(
     "blattella" = "B. germanica",
-    "drosophila" = "D. melanogaster",
+    "drosophila" = "D. melanogaster (set 1)",
     "harmonia" = "H. axyridis",
     "locusta" = "L. migratoria",
     "plutella" = "P. xylostella",
@@ -3588,8 +3588,8 @@ plot_stage_go_results(
   stage_go_results = harmonia$go_results,
   deg_list = harmonia$deg_stage2,
   top_n = 30,
-  min_level = 3,
-  max_level = 4,
+  min_level = 4,
+  max_level = 5,
   output_dir = "/home/cluster_user/Magisterka/plots/",
   prefix = "harmonia"
 )
@@ -3616,8 +3616,8 @@ plot_stage_go_results(
   stage_go_results = plutella$go_results,
   deg_list = plutella$deg_stage2,
   top_n = 30,
-  min_level = 3,
-  max_level = 4,
+  min_level = 4,
+  max_level = 5,
   output_dir = "/home/cluster_user/Magisterka/plots/",
   prefix = "plutella"
 )
@@ -3644,8 +3644,8 @@ plot_stage_go_results(
   stage_go_results = drosophila$go_results,
   deg_list = drosophila$deg_stage2,
   top_n = 30,
-  min_level = 3,
-  max_level = 4,
+  min_level = 4,
+  max_level = 5,
   output_dir = "/home/cluster_user/Magisterka/plots/",
   prefix = "drosophila"
 )
@@ -3672,8 +3672,8 @@ plot_stage_go_results(
   stage_go_results = drosophila2$go_results,
   deg_list = drosophila2$deg_stage2,
   top_n = 30,
-  min_level = 3,
-  max_level = 4,
+  min_level = 4,
+  max_level = 5,
   output_dir = "/home/cluster_user/Magisterka/plots/",
   prefix = "drosophila2"
 )
@@ -3700,14 +3700,108 @@ plot_stage_go_results(
   stage_go_results = blattella$go_results,
   deg_list = blattella$deg_stage2,
   top_n = 30,
-  min_level = 3,
-  max_level = 4,
+  min_level = 4,
+  max_level = 5,
   output_dir = "/home/cluster_user/Magisterka/plots/",
   prefix = "blattella"
 )
 
 ## this hemimetabolic embryo has a lot of similar processes to larvae
 ## nymphs has cuticle which was in pupa
+```
+
+## top go
+
+```{r}
+for(stage in names(harmonia$go_results)) {
+
+  cat("\n=====harmonia===============\n")
+  cat("Stage:", stage, "\n")
+  cat("====================\n")
+
+  obj <- harmonia$go_results[[stage]]
+
+  top_terms <- GenTable(
+    obj$GOdata,
+    Fisher = obj$result,
+    orderBy = "Fisher",
+    topNodes = 10
+  )
+
+  print(top_terms)
+}
+
+for(stage in names(plutella$go_results)) {
+
+  cat("\n=====plutella===============\n")
+  cat("Stage:", stage, "\n")
+  cat("====================\n")
+
+  obj <- plutella$go_results[[stage]]
+
+  top_terms <- GenTable(
+    obj$GOdata,
+    Fisher = obj$result,
+    orderBy = "Fisher",
+    topNodes = 10
+  )
+
+  print(top_terms)
+}
+
+for(stage in names(drosophila$go_results)) {
+
+  cat("\n=====drosophila_1===============\n")
+  cat("Stage:", stage, "\n")
+  cat("====================\n")
+
+  obj <- drosophila$go_results[[stage]]
+
+  top_terms <- GenTable(
+    obj$GOdata,
+    Fisher = obj$result,
+    orderBy = "Fisher",
+    topNodes = 10
+  )
+
+  print(top_terms)
+}
+
+for(stage in names(drosophila2$go_results)) {
+
+  cat("\n=====drosophila_2===============\n")
+  cat("Stage:", stage, "\n")
+  cat("====================\n")
+
+  obj <- drosophila2$go_results[[stage]]
+
+  top_terms <- GenTable(
+    obj$GOdata,
+    Fisher = obj$result,
+    orderBy = "Fisher",
+    topNodes = 10
+  )
+
+  print(top_terms)
+}
+
+for(stage in names(blattella$go_results)) {
+
+  cat("\n=====blattella===============\n")
+  cat("Stage:", stage, "\n")
+  cat("====================\n")
+
+  obj <- blattella$go_results[[stage]]
+
+  top_terms <- GenTable(
+    obj$GOdata,
+    Fisher = obj$result,
+    orderBy = "Fisher",
+    topNodes = 10
+  )
+
+  print(top_terms)
+}
 ```
 
 ## compare
@@ -3828,26 +3922,7 @@ colors <- colorRampPalette(
 
 
 # plot heatmap of stage overlap
-pheatmap(
-  mat,
-  clustering_distance_rows = "euclidean",
-  clustering_distance_cols = "euclidean",
-  color = colors,
-  breaks = breaks,
-  angle_col = 45,
-  border_color = NA,
-  na_col = "grey90",
-  main = "Jaccard similarity of stage-specific DEGs"
-)
-
-
-# save heatmap to file
-png("/home/cluster_user/Magisterka/plots/DEG_overlap_heatmap.png",
-    width = 2200,
-    height = 1800,
-    res = 300)
-
-pheatmap(
+ph <- pheatmap(
   mat,
   clustering_distance_rows = "euclidean",
   clustering_distance_cols = "euclidean",
@@ -3861,5 +3936,8 @@ pheatmap(
   fontsize_col = 7
 )
 
-dev.off()
+grid.newpage()
+grid.draw(ph$gtable)
+
+ggsave("/home/cluster_user/Magisterka/plots/DEG_overlap_heatmap.png", ph, width = 5, height = 4)
 ```
