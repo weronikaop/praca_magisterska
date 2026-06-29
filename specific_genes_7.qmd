@@ -1,12 +1,12 @@
 ---
-title: "deg_analysis_7"
+title: "7. DEGs analysis"
 format: html
 editor: visual
 ---
 
-### unique genes comparison
+this notebook includes tested approaches to DEGs analysis, none of them ended up providing notable results
 
-## libs
+# libraries
 
 ```{r}
 library(readr)
@@ -16,7 +16,15 @@ library(stringr)
 library(Biostrings)
 library(tibble)
 library(DESeq2)
+library(UpSetR)
+library(pheatmap)
 ```
+
+# unique genes comparison
+
+## load data
+
+load DEGs data
 
 ```{r}
 #read degs
@@ -27,6 +35,8 @@ drosophila_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/droso
 drosophila2_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_deg.rds")
 blattella_deg <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_deg.rds")
 ```
+
+load orthogroups and create matrix
 
 ```{r}
 #read orthogroups and 1:1 orthogroups IDs
@@ -177,131 +187,199 @@ names(deg_og_stage2) <- names(deg_og_per_species)
 
 ```
 
+## matrix
+
+Compare differentially expressed orthogroups across species
+
 ```{r}
-#delete empty (locusta)
-deg_og_stage2 <- deg_og_stage2[sapply(deg_og_stage2, length) > 0]
+# Exclude species with no significant orthogroups
+deg_og_stage2 <- deg_og_stage2[
+  sapply(deg_og_stage2, length) > 0
+]
 
+### Generate binary presence–absence matrices
+# Create a list of all unique orthogroups
+all_ogs <- sort(
+  unique(
+    unlist(
+      lapply(deg_og_stage2, unlist)
+    )
+  )
+)
 
-# all og
-all_ogs <- sort(unique(unlist(lapply(deg_og_stage2, unlist))))
-
-#binary matrix for each species
+# Create a binary matrix for each species indicating
+# the presence or absence of each orthogroup
 bin_mat_list <- lapply(deg_og_stage2, function(deg_og) {
+
   comparisons <- names(deg_og)
+
   mat <- sapply(comparisons, function(cmp) {
+
     ogs <- deg_og[[cmp]]
+
     as.integer(all_ogs %in% ogs)
   })
+
   rownames(mat) <- all_ogs
   colnames(mat) <- comparisons
-  return(mat)
+
+  mat
 })
 
-#name normalization
+### Standardise comparison names
+
+# Convert reciprocal comparisons to a common name
 normalize_comparison_name <- function(name) {
+
   stages <- strsplit(name, "_vs_")[[1]]
+
   paste(sort(stages), collapse = "_vs_")
 }
 
 bin_mat_list_stage2 <- lapply(bin_mat_list, function(mat) {
-  colnames(mat) <- sapply(colnames(mat), normalize_comparison_name)
+
+  colnames(mat) <- sapply(
+    colnames(mat),
+    normalize_comparison_name
+  )
+
   mat[, !duplicated(colnames(mat)), drop = FALSE]
 })
 
-#### matrix of all OG from all species
-all_mat <- do.call(cbind, lapply(names(bin_mat_list_stage2), function(sp) {
-  mat <- bin_mat_list_stage2[[sp]]
-  colnames(mat) <- paste(sp, colnames(mat), sep = "::")
-  mat
-}))
+### Combine species-specific matrices
+
+all_mat <- do.call(
+  cbind,
+  lapply(names(bin_mat_list_stage2), function(sp) {
+
+    mat <- bin_mat_list_stage2[[sp]]
+
+    colnames(mat) <- paste(
+      sp,
+      colnames(mat),
+      sep = "::"
+    )
+
+    mat
+  })
+)
 ```
 
+## heatmap
+
 ```{r}
-#binary heatmap
-library(pheatmap)
+### Plot binary presence–absence heatmap
 
-#only degs that are in 3+ samples
-og_filter <- rowSums(all_mat) > 2
-mat_plot <- all_mat[og_filter, ]
+# Retain orthogroups present in at least two comparisons
+og_filter <- rowSums(all_mat) > 1
+mat_plot <- all_mat[og_filter, , drop = FALSE]
 
-png("/home/cluster_user/Magisterka/plots/heatmap_DEG_OGs.png", width = 1500, height = 2000, res = 300)
+png(
+  "/home/cluster_user/Magisterka/plots/heatmap_DEG_OGs.png",
+  width = 1500,
+  height = 2000,
+  res = 300
+)
 
-pheatmap(mat_plot,
-         cluster_rows = FALSE,
-         cluster_cols = TRUE,
-         show_rownames = FALSE,
-         fontsize_col = 6,
-         color = c("white", "red"),
-         legend = FALSE
+pheatmap(
+  mat_plot,
+  cluster_rows = FALSE,
+  cluster_cols = TRUE,
+  show_rownames = FALSE,
+  fontsize_col = 6,
+  color = c("white", "red"),
+  legend = FALSE
 )
 
 dev.off()
 
-pheatmap(mat_plot,
-         cluster_rows = FALSE,
-         cluster_cols = TRUE,
-         show_rownames = FALSE,
-         fontsize_col = 6,
-         color = c("white", "red"),
-         legend = FALSE
+# Display the heatmap in the R session
+pheatmap(
+  mat_plot,
+  cluster_rows = FALSE,
+  cluster_cols = TRUE,
+  show_rownames = FALSE,
+  fontsize_col = 6,
+  color = c("white", "red"),
+  legend = FALSE
 )
 ```
 
 ```{r}
-library(UpSetR)
+## Visualise orthogroup overlap using an UpSet plot
 
-# zamiana na listę zbiorów OG
-sets_list <- lapply(colnames(all_mat), function(cmp) {
-  rownames(all_mat)[all_mat[, cmp] == 1]
-})
-names(sets_list) <- colnames(all_mat)
+### Convert the binary matrix to a list of orthogroup sets
 
+# Retain orthogroups present in at least two comparisons
 og_filter <- rowSums(all_mat) > 1
+
+# Create a list of orthogroup sets for each comparison
 sets_list_top <- lapply(colnames(all_mat), function(cmp) {
-  rownames(all_mat)[all_mat[, cmp] == 1 & rownames(all_mat) %in% rownames(all_mat[og_filter, ])]
+  rownames(all_mat)[
+    all_mat[, cmp] == 1 &
+      rownames(all_mat) %in% rownames(all_mat[og_filter, ])
+  ]
 })
+
 names(sets_list_top) <- colnames(all_mat)
 
+### Save the UpSet plot
 
-png("/home/cluster_user/Magisterka/plots/upset_plot_topOG.png", width = 2000, height = 2000, res = 200)
-upset(fromList(sets_list_top), 
-      nsets = 20,    
-      nintersects = 30, 
-      order.by = "freq",
-      sets.bar.color = "#4C72B0",
-      main.bar.color = "#DD8452",
-      text.scale = c(1.5, 1.2, 1, 1, 1, 1),
-      mainbar.y.label = "Number of DEG Orthogroups")
+png(
+  "/home/cluster_user/Magisterka/plots/upset_plot_topOG.png",
+  width = 2000,
+  height = 2000,
+  res = 200
+)
+
+upset(
+  fromList(sets_list_top),
+  nsets = 20,
+  nintersects = 30,
+  order.by = "freq",
+  sets.bar.color = "#4C72B0",
+  main.bar.color = "#DD8452",
+  text.scale = c(1.5, 1.2, 1, 1, 1, 1),
+  mainbar.y.label = "Number of DEG Orthogroups"
+)
+
 dev.off()
 
-# Upset plot
-upset(fromList(sets_list_top), 
-      nsets = 20, 
-      nintersects = 30, 
-      order.by = "freq",
-      sets.bar.color = "#4C72B0",
-      main.bar.color = "#DD8452",
-      text.scale = c(1.5, 1.2, 1, 1, 1, 1),
-      mainbar.y.label = "Number of DEG Orthogroups")
+### Display the UpSet plot
+
+upset(
+  fromList(sets_list_top),
+  nsets = 20,
+  nintersects = 30,
+  order.by = "freq",
+  sets.bar.color = "#4C72B0",
+  main.bar.color = "#DD8452",
+  text.scale = c(1.5, 1.2, 1, 1, 1, 1),
+  mainbar.y.label = "Number of DEG Orthogroups"
+)
 ```
 
-### some other analysis
+# trying some other analysis
+
+## comparison to nymphs
+
+Compare nymph-specific orthogroups with holometabolous comparisons
 
 ```{r}
-# hemi-metaboliczne
-hemi_species <- c("locusta", "blattella")
+### Identify comparisons
 
-# holo-metaboliczne
-holo_species <- c("harmonia", "plutella", "drosophila")
-
-# przypisanie porównań do gatunków
+# Extract species names from comparison labels
 comp_species <- sapply(strsplit(colnames(all_mat), "::"), `[`, 1)
 
+# Separate hemimetabolous and holometabolous comparisons
 hemi_comps <- colnames(all_mat)[comp_species %in% hemi_species]
 holo_comps <- colnames(all_mat)[comp_species %in% holo_species]
 
+# Select comparisons involving the nymphal stage
 nymph_comps <- grep("Nymph", hemi_comps, value = TRUE)
 
+### Calculate orthogroup overlap
+# Collect all orthogroups identified in nymph comparisons
 nymph_ogs <- unique(unlist(lapply(nymph_comps, function(cmp) {
   rownames(all_mat)[all_mat[, cmp] == 1]
 })))
@@ -309,46 +387,69 @@ nymph_ogs <- unique(unlist(lapply(nymph_comps, function(cmp) {
 ```
 
 ```{r}
-# OG z holo
+# Count orthogroups shared with each holometabolous comparison
 holo_overlap <- sapply(holo_comps, function(cmp) {
   ogs <- rownames(all_mat)[all_mat[, cmp] == 1]
   length(intersect(nymph_ogs, ogs))
 })
 
-# posortowane wyniki
 sort(holo_overlap, decreasing = TRUE)
-
 ```
 
 ```{r}
-barplot(sort(holo_overlap, decreasing = TRUE),
-        las = 2, cex.names = 0.7,
-        col = "#4C72B0",
-        ylab = "Shared OG with Nymph (Hemi)",
-        main = "Overlap of Nymph OG with Holo comparisons")
+### Visualise orthogroup overlap
 
+barplot(
+  sort(holo_overlap, decreasing = TRUE),
+  las = 2,
+  cex.names = 0.7,
+  col = "#4C72B0",
+  ylab = "Shared orthogroups with hemimetabolous nymphs",
+  main = "Overlap between nymph and holometabolous comparisons"
+)
 ```
 
-## combined deg
+## trends of gene expression
 
 ```{r}
+#load DEGs data
 dds <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/dds.rds")
-
 ```
 
 ```{r}
+## Identify stage-specific and gradual gene expression changes
+
+### Larva vs nymph differential expression
+
 res_larva <- results(dds, contrast = c("Stage2", "Larva", "Nymph"))
 
+# Larva-upregulated genes (relative to nymph)
 larva_genes <- rownames(res_larva)[
-  res_larva$padj < 0.05 & res_larva$log2FoldChange > 1
+  res_larva$padj < 0.05 &
+    res_larva$log2FoldChange > 1
 ]
 
+### Prepare ordinal stage variable for trend analysis
+
+# Convert developmental stages into numeric order
 metadata$Stage_num <- as.numeric(factor(
   metadata$Stage2,
-  levels = c("Eggs", "Embryo", "Larva", "Nymph", "Prepupa", "Pupa", "Adult Male", "Adult Female")
+  levels = c(
+    "Eggs",
+    "Embryo",
+    "Larva",
+    "Nymph",
+    "Prepupa",
+    "Pupa",
+    "Adult Male",
+    "Adult Female"
+  )
 ))
 
+# Ensure metadata is aligned with count matrix
 metadata <- metadata[colnames(combined_counts), ]
+
+### Fit DESeq2 model for developmental trend analysis
 
 dds_trend <- DESeqDataSetFromMatrix(
   countData = combined_counts,
@@ -359,19 +460,35 @@ dds_trend <- DESeqDataSetFromMatrix(
 dds_trend <- DESeq(dds_trend)
 res_trend <- results(dds_trend, name = "Stage_num")
 
+### Identify genes with gradual expression changes across development
+
 gradual_genes <- rownames(res_trend)[
   !is.na(res_trend$padj) &
-  res_trend$padj < 0.05 &
-  abs(res_trend$log2FoldChange) > 0
+    res_trend$padj < 0.05 &
+    abs(res_trend$log2FoldChange) > 0
 ]
 
-# Optional: separate increasing vs decreasing
-gradual_up <- rownames(res_trend)[res_trend$padj < 0.05 & res_trend$log2FoldChange > 0]
-gradual_down <- rownames(res_trend)[res_trend$padj < 0.05 & res_trend$log2FoldChange < 0]
+# Split gradual changes into increasing and decreasing trends
+gradual_up <- rownames(res_trend)[
+  res_trend$padj < 0.05 &
+    res_trend$log2FoldChange > 0
+]
+
+gradual_down <- rownames(res_trend)[
+  res_trend$padj < 0.05 &
+    res_trend$log2FoldChange < 0
+]
+
+### Additional pairwise stage comparisons
 
 res_nymph <- results(dds, contrast = c("Stage2", "Nymph", "Larva"))
-res_pupa   <- results(dds, contrast = c("Stage2", "Prepupa", "Nymph"))
 
-nymph_genes <- rownames(res_nymph)[res_nymph$padj < 0.05 & res_nymph$log2FoldChange > 1]
+res_pupa <- results(dds, contrast = c("Stage2", "Prepupa", "Nymph"))
+
+# Genes enriched in nymph relative to larva
+nymph_genes <- rownames(res_nymph)[
+  res_nymph$padj < 0.05 &
+    res_nymph$log2FoldChange > 1
+]
 
 ```
