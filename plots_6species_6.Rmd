@@ -7,13 +7,14 @@ format:
     toc_float: true
     toc-depth: 6
 editor: visual
+author: "Weronika Oprzędek"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## libs
+# libraries
 
 ```{r}
 #| echo: true
@@ -22,7 +23,6 @@ knitr::opts_chunk$set(echo = TRUE)
 library(DESeq2)
 library(ggplot2)
 library(tidyr)
-#library(umap)
 library(uwot) 
 library(pheatmap)
 library(ggrepel)
@@ -53,9 +53,11 @@ conflicted::conflict_prefer("exprs", "Biobase")
 conflicted::conflict_prefer("setdiff", "dplyr")
 ```
 
-## matrix
+# matrix
 
-read previously prepared counts and orthogroups files
+## load data
+
+read previously prepared gene expression counts
 
 ```{r}
 locusta_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/locusta_counts.rds")
@@ -65,6 +67,8 @@ drosophila_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/dr
 blattella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/blattella_counts.rds")
 drosophila2_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila2_counts.rds")
 ```
+
+read orthogroups files
 
 ```{r}
 orthogroups <- read_tsv("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_Jun25/Orthogroups/Orthogroups.tsv")
@@ -78,7 +82,7 @@ head(orthogroups)
 head(single_copy)
 ```
 
-### orthofinder
+## orthofinder
 
 making matrix with SRR IDs as columns and orthogroups as rows, so for each gene with counts I sum them into orthogroup
 
@@ -86,6 +90,7 @@ making matrix with SRR IDs as columns and orthogroups as rows, so for each gene 
 #| echo: true
 #| eval: true
 #| results: false
+
 #list of dataframes with counts (per RNA-seq dataset)
 all_counts <- list(
   locusta = locusta_counts,
@@ -107,13 +112,9 @@ all_counts_long <- lapply(names(all_counts), function(species) {
   bind_rows()
 
 head(all_counts_long)
-
 ```
 
 ```{r}
-#| echo: true
-#| eval: true
-#| results: false
 #table: orthogroup, species, gene
 orthogroup_mapping <- orthogroups %>%
   pivot_longer(-Orthogroup, names_to = "species", values_to = "genes") %>%
@@ -136,14 +137,7 @@ orthogroup_mapping <- bind_rows(orthogroup_mapping, orthogroup_mapping_drosophil
 orthogroup_mapping %>%
   dplyr::count(species)
 
-#numbers of genes in orthogroups (based on genomes)
-# blattella	22002			
-# drosophila	11435			
-# drosophila2	11435			
-# harmonia	18095			
-# locusta	90809			
-# plutella	23332			
-
+#numbers of genes in orthogroups (based on used genome anotations)
 head(orthogroup_mapping)
 
 
@@ -155,18 +149,11 @@ merged <- all_counts_long %>%
   )
 
 head(merged)
+
+#numbers of genes after mapping counts to orthogroups (should be equal or smaller)
 merged %>%
   dplyr::count(species) %>%
   print()
-
-#numbers of genes after mapping counts to orthogroups
-#(should be equal or less than in the original genome annotation)
-# blattella	19505			
-# drosophila	11435			
-# drosophila2	11394			
-# harmonia	14846			
-# locusta	65328			
-# plutella	23143
 ```
 
 ### orthosnap
@@ -277,6 +264,9 @@ head(metadata)
 ```
 
 ```{r}
+#differential expression + deseq2 data formatting
+
+#trial 1
 # dds <- DESeqDataSetFromMatrix(countData = combat_seq_counts,
 #                               colData = metadata,
 #                               design = ~ 1)
@@ -294,7 +284,9 @@ summary(results(dds))
 saveRDS(dds, file = "/home/cluster_user/link_to_datadisk/copy/counts/dds.rds")
 ```
 
-### pca
+# patterns visualisation
+
+## pca
 
 ```{r}
 #variance-stabilizing transformation (reduces dependence of variance on mean expression)
@@ -386,7 +378,7 @@ ggsave("/home/cluster_user/Magisterka/plots/PCA_all_stage_species.png",
        p, width = 11, height = 8, dpi = 300)
 ```
 
-### heatmap
+## heatmap
 
 ```{r}
 #annotations
@@ -449,7 +441,7 @@ grid.draw(ph$gtable)
 ggsave("/home/cluster_user/Magisterka/plots/pheatmap_all_samples.png", ph, width = 11, height = 8)
 ```
 
-### DEGs heatmap
+## DEGs heatmap
 
 ```{r}
 #heatmap of differential expression between stages
@@ -503,7 +495,7 @@ grid.draw(ph$gtable)
 ggsave("/home/cluster_user/Magisterka/plots/pheatmap_all_stage_species.png", ph, width = 5, height = 4)
 ```
 
-### umap
+## umap
 
 ```{r}
 #Uniform Manifold Approximation and Projection
@@ -582,7 +574,7 @@ ggsave("/home/cluster_user/Magisterka/plots/UMAP_all_stage_species.png",
        p, width = 11, height = 8, dpi = 300)
 ```
 
-### pseudotime
+## pseudotime
 
 ```{r}
 print(percentVar)
@@ -793,9 +785,10 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_all_stage_species.png",
        p3, width = 11, height = 8, dpi = 300)
 ```
 
-#### stats
+### pseudotime summary
 
 ```{r}
+### Calculate summary statistics by developmental stage
 pseudo_stats <- pcaData %>%
   group_by(Stage2) %>%
   summarise(
@@ -812,6 +805,7 @@ pseudo_stats <- pcaData %>%
 
 print(pseudo_stats)
 
+### Summarise pseudotime by stage and species
 pseudo_species <- pcaData %>%
   group_by(Stage2, Species) %>%
   summarise(
@@ -823,6 +817,7 @@ pseudo_species <- pcaData %>%
 
 print(pseudo_species)
 
+### Identify samples with the lowest and highest pseudotime values
 sorted_samples <- pcaData %>%
   arrange(Pseudotime) %>%
   select(Sample2, Species, Stage2, Pseudotime)
@@ -830,18 +825,20 @@ sorted_samples <- pcaData %>%
 print(head(sorted_samples, 10))
 print(tail(sorted_samples, 10))
 
+### Compare pseudotime variation among developmental stages
 stages_by_variation <- pcaData %>%
   group_by(Stage2) %>%
   summarise(
     range = max(Pseudotime) - min(Pseudotime),
-    sd = sd(Pseudotime)
+    sd = sd(Pseudotime),
+    .groups = "drop"
   ) %>%
   arrange(desc(range))
 
 print(stages_by_variation)
 ```
 
-#### pca
+### pca
 
 ```{r}
 curve_line <- as.data.frame(pc_curve_all$s)
@@ -880,7 +877,7 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_stage_species.png",
         p_curve, width = 11, height = 8, dpi = 300)
 ```
 
-#### umap
+### umap
 
 ```{r}
 #same workflow as above, for UMAP data
@@ -1112,9 +1109,9 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime_umap_stage_species.png",
        p_umap_curve, width = 11, height = 8, dpi = 300)
 ```
 
-## no species effect
+# no species effect
 
-### matrix
+## matrix
 
 ```{r}
 #| echo: true
@@ -1235,7 +1232,7 @@ dds <- estimateSizeFactors(dds, type = "poscounts")
 saveRDS(dds, file = "/home/cluster_user/link_to_datadisk/copy/counts/dds_batch.rds")
 ```
 
-### pca
+## pca
 
 ```{r}
 #removing species effect by doing pca on residuas from model with species factor
@@ -1335,7 +1332,7 @@ ggsave("/home/cluster_user/Magisterka/plots/PCA_all_stage.png",
 
 ```
 
-### heatmap
+## heatmap
 
 ```{r}
 #annotations
@@ -1388,7 +1385,7 @@ grid.draw(ph$gtable)
 ggsave("/home/cluster_user/Magisterka/plots/heatmap_all_stage.png", ph, width = 12, height = 8)
 ```
 
-### umap
+## umap
 
 ```{r}
 #Mfuzz standardise (z-score on orthogroups)
@@ -1507,7 +1504,7 @@ ggsave("/home/cluster_user/Magisterka/plots/UMAP_all_stage_big.png",
        p, width = 11, height = 8, dpi = 300)
 ```
 
-### cluster
+## cluster
 
 ```{r}
 expr_values <- expr_median %>%
@@ -1543,62 +1540,7 @@ legend("topright", inset = c(0.05, 0), legend = names(stage_colors),
 dev.off() 
 ```
 
-```{r}
-#so this is incorrect
-# #pheatmap stage
-# pheno <- as.data.frame(colData(dds))
-# design <- model.matrix(~ 0 + Stage2, data = pheno)
-# 
-# fit <- lmFit(residuals_mat, design)
-# 
-# #contrasts by stage2
-# contrast_list <- lapply(combn(stage_levels, 2, simplify = FALSE), function(x) {
-#   contrast <- rep(0, length(stage_levels))
-#   names(contrast) <- stage_levels
-#   contrast[x[1]] <- 1
-#   contrast[x[2]] <- -1
-#   contrast
-# })
-# 
-# contrast_matrix <- do.call(cbind, contrast_list)
-# colnames(contrast_matrix) <- sapply(combn(stage_levels, 2, simplify = FALSE), function(x) paste(x, collapse = "_vs_"))
-# 
-# fit2 <- contrasts.fit(fit, contrast_matrix)
-# fit2 <- eBayes(fit2)
-# 
-# deg_list <- list()
-# mat <- matrix(0, nrow = length(stage_levels), ncol = length(stage_levels),
-#               dimnames = list(stage_levels, stage_levels))
-# 
-# for (comp_name in colnames(contrast_matrix)) {
-#   res <- topTable(fit2, coef = comp_name, number = Inf, adjust.method = "BH", sort.by = "none")
-#   deg_list[[comp_name]] <- res
-#   comps <- strsplit(comp_name, "_vs_")[[1]]
-#   
-#   n_deg <- sum(res$adj.P.Val < 0.05, na.rm = TRUE)
-#   mat[comps[1], comps[2]] <- n_deg
-#   mat[comps[2], comps[1]] <- n_deg
-# }
-# 
-# # Heatmapa
-# ph <- pheatmap(mat,
-#          fontsize_row = 10,
-#          fontsize_col = 10,
-#          angle_col = 45,
-#          cellwidth = 20,
-#          cellheight = 20,
-#          border_color = NA,
-#          main = "Number of DEGs between stages\n(removed species effect)",
-#          color = deg_colors
-# )
-# 
-# grid.newpage()
-# grid.draw(ph$gtable)
-# 
-# ggsave("/home/cluster_user/Magisterka/plots/pheatmap_all_stage.png", ph, width = 5, height = 4.5)
-```
-
-### pseudotime
+## pseudotime
 
 ```{r}
 print(percentVar)
@@ -1857,9 +1799,11 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime1_all_stage_big.png",
        p1, width = 5, height = 5, dpi = 300)
 ```
 
-#### stats
+### pseudotime summary
 
 ```{r}
+### Calculate summary statistics by developmental stage
+
 pseudo_stats <- pcaData %>%
   group_by(Stage2) %>%
   summarise(
@@ -1876,6 +1820,8 @@ pseudo_stats <- pcaData %>%
 
 print(pseudo_stats)
 
+### Summarise pseudotime by developmental stage and species
+
 pseudo_species <- pcaData %>%
   group_by(Stage2, Species) %>%
   summarise(
@@ -1887,6 +1833,8 @@ pseudo_species <- pcaData %>%
 
 print(pseudo_species)
 
+### Identify samples at the extremes of the pseudotime trajectory
+
 sorted_samples <- pcaData %>%
   arrange(Pseudotime) %>%
   select(Sample2, Species, Stage2, Pseudotime)
@@ -1894,18 +1842,21 @@ sorted_samples <- pcaData %>%
 print(head(sorted_samples, 10))
 print(tail(sorted_samples, 10))
 
+### Compare pseudotime variation across developmental stages
+
 stages_by_variation <- pcaData %>%
   group_by(Stage2) %>%
   summarise(
     range = max(Pseudotime) - min(Pseudotime),
-    sd = sd(Pseudotime)
+    sd = sd(Pseudotime),
+    .groups = "drop"
   ) %>%
   arrange(desc(range))
 
 print(stages_by_variation)
 ```
 
-#### pca
+### pca
 
 ```{r}
 curve_line <- as.data.frame(pc_curve_all$s)
@@ -1944,7 +1895,7 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_all_stage.png",
         p_curve, width = 11, height = 8, dpi = 300)
 ```
 
-#### umap
+### umap
 
 ```{r}
 umap_mat_all <- as.matrix(umap_df[, c("UMAP1", "UMAP2")])
@@ -2286,11 +2237,19 @@ p <- ggplot(nymph_comp, aes(x = Stage2_2, y = distance, fill = Stage2_2)) +
 print(p)
 ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_violin.png",
        p, width = 7, height = 5, dpi = 300)
+
+
+model <- lmer(distance ~ Stage2_2 + (1|Sample1),
+              data = nymph_comp)
+emm <- emmeans(model, ~ Stage2_2)
+print(summary(emm, infer = c(TRUE, TRUE)))
+contrast_results <- pairs(emm)
+print(contrast_results)
 ```
 
-#### early vs late
+### early vs late
 
-##### prepupa
+#### prepupa
 
 ```{r}
 #Early vs late nymphal instars; locusta 1,2,3,4,5 blattella: 1,3,5,6
@@ -2378,7 +2337,7 @@ summary(pairs(emm))
 #late nymphs are closer to prepupa
 ```
 
-##### larva
+#### larva
 
 ```{r}
 # nymph_trend <- dist_df %>%
@@ -2490,7 +2449,7 @@ summary(pairs(emm))
 #larva are closer to early nymphs
 ```
 
-##### pupa
+#### pupa
 
 ```{r}
 # nymph_trend <- dist_df %>%
@@ -2567,7 +2526,7 @@ summary(pairs(emm))
 #connection to nymphal instars isnt significant
 ```
 
-##### combined plot
+#### combined plot
 
 ```{r}
 combined_nymph <- dist_df %>%
@@ -2646,9 +2605,12 @@ ggsave("/home/cluster_user/Magisterka/plots/very_early_vs_late_combined_big.png"
        p_combined, width = 12, height = 5, dpi = 300)
 ```
 
-#### instars
+### instars
+
+Analyse similarity to nymphal instars
 
 ```{r}
+### Prepare data for trend analysis
 trend_df <- dist_df %>%
   filter(
     Stage2_1 == "Nymph",
@@ -2656,6 +2618,7 @@ trend_df <- dist_df %>%
     !is.na(instar_number)
   )
 
+### Calculate Spearman correlations
 cor_results <- trend_df %>%
   group_by(Stage2_2) %>%
   summarise(
@@ -2666,28 +2629,25 @@ cor_results <- trend_df %>%
 
 print(cor_results)
 
-#counted separate for each metastage
-#   Stage2_2      rho     n
-# 1 Larva     0.242     126 --> distance growths in next stages)
-# 2 Prepupa  -0.314     117 --> distance falls in next stages
-# 3 Pupa     -0.00894    99 --> only very small decrease, not visible
-
-# subset colors only for used stages
+### Prepare plot annotations
+# Define colours for the compared developmental stages
 stage_colors_sub <- stage_colors[c("Larva", "Prepupa", "Pupa")]
 
-# correlation labels
+# Create correlation labels for each facet
 cor_labels <- cor_results %>%
   mutate(label = paste0("rho = ", round(rho, 2)))
 
+### Plot developmental trends
 p <- ggplot(trend_df, aes(instar_number, distance, color = Stage2_2)) +
   geom_point(alpha = 0.7, size = 2) +
   geom_smooth(method = "lm", se = TRUE, linewidth = 1) +
-  facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
+  facet_wrap(~Stage2_2, nrow = 1, scales = "free_y") +
   geom_text(
     data = cor_labels,
     aes(x = -Inf, y = Inf, label = label),
     inherit.aes = FALSE,
-    hjust = -0.1, vjust = 1.1,
+    hjust = -0.1,
+    vjust = 1.1,
     size = 4
   ) +
   scale_color_manual(values = stage_colors_sub) +
@@ -2704,15 +2664,24 @@ p <- ggplot(trend_df, aes(instar_number, distance, color = Stage2_2)) +
   )
 
 print(p)
-ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_instar.png",
-       p, width = 7, height = 5, dpi = 300)
 
+ggsave(
+  "/home/cluster_user/Magisterka/plots/spearman_dist_instar.png",
+  p,
+  width = 7,
+  height = 5,
+  dpi = 300
+)
+
+### Plot sample-specific trends
 p_sample <- ggplot(trend_df, aes(instar_number, distance)) +
   geom_point(aes(color = Sample1), alpha = 0.6, size = 2) +
   geom_smooth(
-    method = "lm", se = TRUE, linewidth = 1.2
+    method = "lm",
+    se = TRUE,
+    linewidth = 1.2
   ) +
-  facet_wrap(~ Stage2_2, nrow = 1, scales = "free_y") +
+  facet_wrap(~Stage2_2, nrow = 1, scales = "free_y") +
   theme_classic(base_size = 14) +
   labs(
     x = "Nymphal instar number",
@@ -2728,11 +2697,16 @@ p_sample <- ggplot(trend_df, aes(instar_number, distance)) +
 
 print(p_sample)
 
-ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_instar_sample.png",
-       p_sample, width = 9, height = 5, dpi = 300)
+ggsave(
+  "/home/cluster_user/Magisterka/plots/spearman_dist_instar_sample.png",
+  p_sample,
+  width = 9,
+  height = 5,
+  dpi = 300
+)
 ```
 
-#### models
+### models
 
 ```{r}
 lm_model <- lmer(distance ~ instar_number * Stage2_2 + (1 | Sample2), data = trend_df)
@@ -2792,17 +2766,45 @@ summary(lm_model)
 # Degrees-of-freedom method: kenward-roger 
 # Confidence level used: 0.95 
 
-emm <- emtrends(lm_model, ~ Stage2_2, var = "instar_number")
+### Estimate stage-specific slopes
+emm <- emtrends(
+  lm_model,
+  ~ Stage2_2,
+  var = "instar_number"
+)
+
 print(summary(emm, infer = c(TRUE, TRUE)))
+
+### pairwise comparisons of slopes
 contrast_results <- pairs(emm)
+
 print(contrast_results)
 
-trend_emm <- as.data.frame(emtrends(lm_model, ~ Stage2_2, var = "instar_number"))
+### Plot estimated slopes
+trend_emm <- as.data.frame(
+  emtrends(
+    lm_model,
+    ~ Stage2_2,
+    var = "instar_number"
+  )
+)
 
-p_trend <- ggplot(trend_emm, aes(x = Stage2_2, y = instar_number.trend, color = Stage2_2)) +
+p_trend <- ggplot(
+  trend_emm,
+  aes(
+    x = Stage2_2,
+    y = instar_number.trend,
+    color = Stage2_2
+  )
+) +
   geom_point(size = 3) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
-  scale_color_manual(values = stage_colors[c("Larva", "Prepupa", "Pupa")]) +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = 0.2
+  ) +
+  scale_color_manual(
+    values = stage_colors[c("Larva", "Prepupa", "Pupa")]
+  ) +
   theme_classic(base_size = 14) +
   labs(
     x = "Developmental stage",
@@ -2817,14 +2819,21 @@ p_trend <- ggplot(trend_emm, aes(x = Stage2_2, y = instar_number.trend, color = 
 
 print(p_trend)
 
-ggsave("/home/cluster_user/Magisterka/plots/instar_trends_emmeans.png",
-       p_trend, width = 7, height = 5, dpi = 300)
+ggsave(
+  "/home/cluster_user/Magisterka/plots/instar_trends_emmeans.png",
+  p_trend,
+  width = 7,
+  height = 5,
+  dpi = 300
+)
 ```
 
-#### embryo
+### larva distance
+
+Compare larval distances to hemimetabolous and holometabolous stages
 
 ```{r}
-#compare embryo from hemi and holo separately
+### Classify embryonic samples by developmental mode
 hemi_species <- c("locusta", "blattella")
 holo_species <- c("harmonia", "plutella", "drosophila")
 
@@ -2837,13 +2846,26 @@ dist_df <- dist_df %>%
     )
   )
 
+### Prepare data and fit the mixed-effects model
 embryo_test <- dist_df %>%
   filter(
     Stage2_1 == "Larva",
-    EmbryoType %in% c("Embryo_hemi", "Embryo_holo", "Nymph", "Prepupa", "Pupa")
+    EmbryoType %in% c(
+      "Embryo_hemi",
+      "Embryo_holo",
+      "Nymph",
+      "Prepupa",
+      "Pupa",
+      "Adult Female",
+      "Adult Male"
+    )
   )
 
-model <- lmer(distance ~ EmbryoType + (1 | Sample2), data = embryo_test)
+model <- lmer(
+  distance ~ EmbryoType + (1 | Sample2),
+  data = embryo_test
+)
+
 summary(model)
 
 # Linear mixed model fit by REML ['lmerMod']
@@ -2910,10 +2932,21 @@ summary(model)
 
 #so it's still more Hinton where the transfers between stages are more fluid
 
-#PLOTS
+## Visualise observed distances
+
+### Format stage labels and colours
+
 embryo_test$EmbryoType <- factor(
   embryo_test$EmbryoType,
-  levels = c("Embryo_hemi", "Embryo_holo", "Nymph", "Prepupa", "Pupa")
+  levels = c(
+    "Embryo_hemi",
+    "Embryo_holo",
+    "Nymph",
+    "Prepupa",
+    "Pupa",
+    "Adult Female",
+    "Adult Male"
+  )
 )
 
 embryo_test$EmbryoType <- recode(
@@ -2923,12 +2956,16 @@ embryo_test$EmbryoType <- recode(
 )
 
 stage_colors_extended <- c(
-  "Embryo (hemi)" = "#009E5A",   # darker green
-  "Embryo (holo)" = "#33CC80",   # lighter green
+  "Embryo (hemi)" = "#009E5A",
+  "Embryo (holo)" = "#33CC80",
   "Nymph" = "#00A9FF",
   "Prepupa" = "#C77CFF",
-  "Pupa" = "#FF61CC"
+  "Pupa" = "#FF61CC",
+  "Adult Female" = "#F8766D",
+  "Adult Male" = "#CD9600"
 )
+
+### Plot observed Spearman distances
 
 p <- ggplot(embryo_test, aes(x = EmbryoType, y = distance, fill = EmbryoType)) +
   geom_violin(trim = FALSE, alpha = 0.7) +
@@ -2948,18 +2985,33 @@ p <- ggplot(embryo_test, aes(x = EmbryoType, y = distance, fill = EmbryoType)) +
   )
 
 print(p)
-ggsave("/home/cluster_user/Magisterka/plots/spearman_dist_embryo.png",
-       p, width = 8, height = 5, dpi = 300)
 
-#emmeans
+ggsave(
+  "/home/cluster_user/Magisterka/plots/spearman_dist_embryo.png",
+  p,
+  width = 10,
+  height = 5,
+  dpi = 300
+)
+
+## Estimate marginal means
+
+### Calculate estimated marginal means and pairwise comparisons
+
 emm <- emmeans(model, ~ EmbryoType)
+
 print(summary(emm, infer = c(TRUE, TRUE)))
+
 contrast_results <- pairs(emm)
+
 print(contrast_results)
 
-emm_df <- as.data.frame(emmeans(model, ~ EmbryoType))
+### Prepare estimated marginal means for plotting
 
-# fix names
+emm_df <- as.data.frame(
+  emmeans(model, ~ EmbryoType)
+)
+
 emm_df$EmbryoType <- recode(
   emm_df$EmbryoType,
   "Embryo_hemi" = "Embryo (hemi)",
@@ -2968,12 +3020,28 @@ emm_df$EmbryoType <- recode(
 
 emm_df$EmbryoType <- factor(
   emm_df$EmbryoType,
-  levels = c("Embryo (hemi)", "Embryo (holo)", "Nymph", "Prepupa", "Pupa")
+  levels = c(
+    "Embryo (hemi)",
+    "Embryo (holo)",
+    "Nymph",
+    "Prepupa",
+    "Pupa",
+    "Adult Female",
+    "Adult Male"
+  )
 )
 
-p_emm <- ggplot(emm_df, aes(x = EmbryoType, y = emmean, color = EmbryoType)) +
+### Plot estimated marginal means
+
+p_emm <- ggplot(
+  emm_df,
+  aes(x = EmbryoType, y = emmean, color = EmbryoType)
+) +
   geom_point(size = 4) +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+  geom_errorbar(
+    aes(ymin = lower.CL, ymax = upper.CL),
+    width = 0.2
+  ) +
   scale_color_manual(values = stage_colors_extended) +
   theme_classic(base_size = 17.5) +
   labs(
@@ -2983,7 +3051,6 @@ p_emm <- ggplot(emm_df, aes(x = EmbryoType, y = emmean, color = EmbryoType)) +
   ) +
   theme(
     legend.position = "none",
-    #axis.text.x = element_text(angle = 30, hjust = 1),
     plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
     axis.title = element_text(size = 15, face = "bold"),
     axis.text = element_text(size = 13)
@@ -2991,8 +3058,13 @@ p_emm <- ggplot(emm_df, aes(x = EmbryoType, y = emmean, color = EmbryoType)) +
 
 print(p_emm)
 
-ggsave("/home/cluster_user/Magisterka/plots/emmeans_larva.png",
-       p_emm, width = 8, height = 5, dpi = 300)
+ggsave(
+  "/home/cluster_user/Magisterka/plots/emmeans_larva.png",
+  p_emm,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
 ```
 
 ```{r}
@@ -3047,21 +3119,21 @@ ggsave("/home/cluster_user/Magisterka/plots/emmeans_larva_big.png",
        p_emm, width = 8, height = 5, dpi = 300)
 ```
 
-### all
+## all distances matrix
 
 ```{r}
 # create separate dataframe for heatmap
 heatmap_dist_df <- dist_df %>%
   mutate(
     Stage2_1 = case_when(
-      Stage2_1 == "Embryo" & Species1 %in% hemi_species ~ "Embryo (hemi)",
-      Stage2_1 == "Embryo" & Species1 %in% holo_species ~ "Embryo (holo)",
+      Species1 %in% hemi_species ~ paste0(Stage2_1, " (hemi)"),
+      Species1 %in% holo_species ~ paste0(Stage2_1, " (holo)"),
       TRUE ~ Stage2_1
     ),
-    
+
     Stage2_2 = case_when(
-      Stage2_2 == "Embryo" & Species2 %in% hemi_species ~ "Embryo (hemi)",
-      Stage2_2 == "Embryo" & Species2 %in% holo_species ~ "Embryo (holo)",
+      Species2 %in% hemi_species ~ paste0(Stage2_2, " (hemi)"),
+      Species2 %in% holo_species ~ paste0(Stage2_2, " (holo)"),
       TRUE ~ Stage2_2
     )
   )
@@ -3076,15 +3148,18 @@ heatmap_df <- heatmap_dist_df %>%
 
 # order stages
 stage_order <- c(
-  "Eggs",
+  "Eggs (hemi)",
+  #"Eggs (holo)",
   "Embryo (hemi)",
   "Embryo (holo)",
-  "Nymph",
-  "Larva",
-  "Prepupa",
-  "Pupa",
-  "Adult Female",
-  "Adult Male"
+  "Nymph (hemi)",
+  "Larva (holo)",
+  "Prepupa (holo)",
+  "Pupa (holo)",
+  "Adult Female (hemi)",
+  "Adult Female (holo)",
+  #"Adult Male (hemi)",
+  "Adult Male (holo)"
 )
 
 # keep only lower triangle
@@ -3111,7 +3186,7 @@ p_heatmap <- ggplot(
     mid = "white",       # neutral (distance = 1)
     high = "#B2182B",    # more divergent
     midpoint = 1,
-    limits = c(0.5, 1.5),
+    limits = c(0.4, 1.6),
     name = "Median\nSpearman\ndistance"
   ) +
 
@@ -3138,6 +3213,8 @@ ggsave(
 ```
 
 ### partial correlation
+
+removes almost all effects -\> unsuccesful
 
 ```{r}
 cor_matrix <- cor(t(expr_dist), method = "spearman")
@@ -3240,7 +3317,11 @@ ggsave(
 )
 ```
 
-## no embryo&adults
+# no embryo&adults
+
+removal of rare (dataset-wise) stages - focus on adolescent, closest to metamorphosis
+
+## matrix
 
 ```{r}
 metadata_filtered <- metadata[!(metadata$Stage2 %in% c("Embryo", "Eggs","Adult Female", "Adult Male" )), ]
@@ -3254,7 +3335,7 @@ dds <- estimateSizeFactors(dds)
 #dds <- DESeq(dds)
 ```
 
-### pca
+## pca
 
 ```{r}
 vst <- varianceStabilizingTransformation(dds, blind = FALSE)
@@ -3357,7 +3438,7 @@ ggsave("/home/cluster_user/Magisterka/plots/PCA_no_e_stage.png",
        p, width = 11, height = 8, dpi = 300)
 ```
 
-### heatmap
+## heatmap
 
 ```{r}
 #annotations
@@ -3405,7 +3486,7 @@ grid.draw(ph$gtable)
 ggsave("/home/cluster_user/Magisterka/plots/heatmap_no_e_stage.png", ph, width = 12, height = 8)
 ```
 
-### umap
+## umap
 
 ```{r}
 #Mfuzz standardise (z-score on orthogroups)
@@ -3526,7 +3607,7 @@ ggsave("/home/cluster_user/Magisterka/plots/UMAP_no_e_stage_big.png",
        p, width = 11, height = 8, dpi = 300)
 ```
 
-### cluster
+## cluster
 
 ```{r}
 expr_values <- expr_median %>%
@@ -3562,61 +3643,7 @@ legend("topright", inset = c(0.05, 0), legend = names(stage_colors),
 dev.off() 
 ```
 
-```{r}
-# #pheatmap stage
-# pheno <- as.data.frame(colData(dds))
-# design <- model.matrix(~ 0 + Stage2, data = pheno)
-# 
-# fit <- lmFit(residuals_mat, design)
-# 
-# #contrasts by stage2
-# contrast_list <- lapply(combn(stage_levels, 2, simplify = FALSE), function(x) {
-#   contrast <- rep(0, length(stage_levels))
-#   names(contrast) <- stage_levels
-#   contrast[x[1]] <- 1
-#   contrast[x[2]] <- -1
-#   contrast
-# })
-# 
-# contrast_matrix <- do.call(cbind, contrast_list)
-# colnames(contrast_matrix) <- sapply(combn(stage_levels, 2, simplify = FALSE), function(x) paste(x, collapse = "_vs_"))
-# 
-# fit2 <- contrasts.fit(fit, contrast_matrix)
-# fit2 <- eBayes(fit2)
-# 
-# deg_list <- list()
-# mat <- matrix(0, nrow = length(stage_levels), ncol = length(stage_levels),
-#               dimnames = list(stage_levels, stage_levels))
-# 
-# for (comp_name in colnames(contrast_matrix)) {
-#   res <- topTable(fit2, coef = comp_name, number = Inf, adjust.method = "BH", sort.by = "none")
-#   deg_list[[comp_name]] <- res
-#   comps <- strsplit(comp_name, "_vs_")[[1]]
-#   
-#   n_deg <- sum(res$adj.P.Val < 0.05, na.rm = TRUE)
-#   mat[comps[1], comps[2]] <- n_deg
-#   mat[comps[2], comps[1]] <- n_deg
-# }
-# 
-# # Heatmapa
-# ph <- pheatmap(mat,
-#          fontsize_row = 10,
-#          fontsize_col = 10,
-#          angle_col = 45,
-#          cellwidth = 20,
-#          cellheight = 20,
-#          border_color = NA,
-#          main = "Number of DEGs between stages\n(removed species effect, chosen stages)",
-#          color = deg_colors
-# )
-# 
-# grid.newpage()
-# grid.draw(ph$gtable)
-# 
-# ggsave("/home/cluster_user/Magisterka/plots/pheatmap_no_e_stage.png", ph, width = 5, height = 4.5)
-```
-
-### pseudotime
+## pseudotime
 
 ```{r}
 print(percentVar)
@@ -3824,9 +3851,13 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime3_no_stage.png",
        p3, width = 11, height = 8, dpi = 300)
 ```
 
-#### stats
+### pseudotime summary
 
 ```{r}
+## Summarise pseudotime distributions
+
+### Calculate summary statistics by developmental stage
+
 pseudo_stats <- pcaData %>%
   group_by(Stage2) %>%
   summarise(
@@ -3843,6 +3874,8 @@ pseudo_stats <- pcaData %>%
 
 print(pseudo_stats)
 
+### Calculate summary statistics by developmental stage and species
+
 pseudo_species <- pcaData %>%
   group_by(Stage2, Species) %>%
   summarise(
@@ -3854,6 +3887,8 @@ pseudo_species <- pcaData %>%
 
 print(pseudo_species)
 
+### Identify samples at the extremes of the pseudotime trajectory
+
 sorted_samples <- pcaData %>%
   arrange(Pseudotime) %>%
   select(Sample2, Species, Stage2, Pseudotime)
@@ -3861,18 +3896,21 @@ sorted_samples <- pcaData %>%
 print(head(sorted_samples, 10))
 print(tail(sorted_samples, 10))
 
+### Compare pseudotime variation across developmental stages
+
 stages_by_variation <- pcaData %>%
   group_by(Stage2) %>%
   summarise(
     range = max(Pseudotime) - min(Pseudotime),
-    sd = sd(Pseudotime)
+    sd = sd(Pseudotime),
+    .groups = "drop"
   ) %>%
   arrange(desc(range))
 
 print(stages_by_variation)
 ```
 
-#### pca
+### pca
 
 ```{r}
 curve_line <- as.data.frame(pc_curve_all$s)
@@ -3911,7 +3949,7 @@ ggsave("/home/cluster_user/Magisterka/plots/pseudotime_pca_no_stage.png",
         p_curve, width = 11, height = 8, dpi = 300)
 ```
 
-#### umap
+### umap
 
 ```{r}
 umap_mat_all <- as.matrix(umap_df[, c("UMAP1", "UMAP2")])
