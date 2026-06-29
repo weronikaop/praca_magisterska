@@ -1,5 +1,5 @@
 ---
-title: "plots_4species_5"
+title: "5. reproduction of gene expression analysis - 4 datasets"
 format:
   html:
     embed-resources: true
@@ -7,13 +7,18 @@ format:
     toc_float: true
     toc-depth: 6
 editor: visual
+author: "Weronika Oprzędek"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Part 1 species
+# Part 1 of datasets - combined species analysis
+
+This code aims to repeat and extend PCA and UMAP analyses from H. Zhou, R. Shu, C. Zhang, Y. Xiao, D. Jing, J. Tang, Z. Cao, X. Chen, Y. Mei, and F. Li, “Developmental correspondence of juvenile stages across the locust, harlequin ladybird, and diamondback moth,” (iScience, vol. 27, no. 10, p. 110898, Oct. 2024, doi: 10.1016/j.isci.2024.110898) on the same datasets
+
+# libraries
 
 ```{r}
 library(DESeq2)
@@ -34,15 +39,20 @@ library(uwot)
 library(grid)
 ```
 
-### matrix
+# matrix
+
+## load data
+
+read previously prepared gene expression counts
 
 ```{r}
 locusta_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/locusta_counts.rds")
 harmonia_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/harmonia_counts.rds")
 plutella_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/plutella_counts.rds")
 drosophila_counts <- readRDS("/home/cluster_user/link_to_datadisk/copy/counts/drosophila_counts.rds")
-
 ```
+
+read orthogroups files
 
 ```{r}
 orthogroups <- read_tsv("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_May15/Orthogroups/Orthogroups.tsv")
@@ -56,14 +66,16 @@ head(orthogroups)
 head(single_copy)
 ```
 
+## orthofinder
+
+making matrix with SRR IDs as columns and orthogroups as rows, so for each gene with counts I sum them into orthogroup
+
 ```{r}
 #| echo: true
 #| eval: true
 #| results: false
-#making matrix with columns SRR and with rows orthogroups
-#so for each gene with counts need to sum it into orthogroup
 
-#list of dataframes with counts
+#list of dataframes with counts (per RNA-seq dataset)
 all_counts <- list(
   locusta = locusta_counts,
   harmonia = harmonia_counts,
@@ -71,8 +83,8 @@ all_counts <- list(
   drosophila = drosophila_counts
 )
 
-
-#in one table: all gene names, all SRR, information about species
+#combine all counts tables into one long table
+#rows: all gene names; columns: all SRR and species; values: counts 
 all_counts_long <- lapply(names(all_counts), function(species) {
   df <- all_counts[[species]]
   df$gene_id <- rownames(df)
@@ -82,14 +94,16 @@ all_counts_long <- lapply(names(all_counts), function(species) {
   bind_rows()
 
 head(all_counts_long)
-
 ```
 
+## orthoSNAP
+
 ```{r}
-# orthosnap so only 1:1 snap are left
+#orthosnap -> found additional 1:1 orthogroups
 
 snap_files <- list.files("/home/cluster_user/Magisterka/proteins/OrthoFinder/Results_May15/output_snap_ogs/", pattern = "\\.fa$", full.names = TRUE)
 
+#read files and extract gene IDs
 snap_orthologs <- lapply(snap_files, function(file) {
   fasta <- readAAStringSet(file)
   genes <- names(fasta)
@@ -101,20 +115,19 @@ snap_orthologs <- lapply(snap_files, function(file) {
   )
 }) %>% bind_rows()
 
+#merge with expression counts
 snap_expr <- snap_orthologs %>%
   inner_join(all_counts_long, by = "gene_id")
 
+#sum gene counts into orthogroups
 orthosnap_counts <- snap_expr %>%
   select(-gene_id, -species) %>%
   group_by(orthogroup) %>%
   summarise(across(everything(), ~sum(.x, na.rm = TRUE))) %>%
   column_to_rownames(var = "orthogroup")
-
-
 ```
 
 ```{r}
-
 #table: orthogroup, species, gene
 orthogroup_mapping <- orthogroups %>%
   pivot_longer(-Orthogroup, names_to = "species", values_to = "genes") %>%
@@ -128,21 +141,14 @@ orthogroup_mapping <- orthogroups %>%
 
 orthogroup_mapping %>%
   count(species)
-
-# drosophila	11268			
-# harmonia	17855			
-# locusta	91040			
-# plutella	22808		
-
+#numbers of genes in orthogroups (based on used genome anotations)
 head(orthogroup_mapping)
 
-
-#to the all_counts_long adding orthogroup
+#join count data with orthogroup mapping
 merged <- all_counts_long %>%
   inner_join(orthogroup_mapping, by = c("gene_id" = "genes"))
 
 head(merged)
-
 ```
 
 ```{r}
@@ -162,19 +168,17 @@ head(orthogroup_counts)
 ```
 
 ```{r}
-#only 1:1
-
-
+#narrow to only 1:1 orthogroups
 orthogroup_counts_1to1 <- orthogroup_counts %>%
   filter(rownames(.) %in% single_copy)
 
-#does anything overlap?
+#check if anything overlaps between 1:1 from orthofinder and orthosnap (no)
 overlapping_genes <- intersect(rownames(orthogroup_counts_1to1), rownames(orthosnap_counts))
 
 length(overlapping_genes)
 print(overlapping_genes)
 
-
+#add orthosnap
 combined_counts <- bind_rows(
   orthogroup_counts_1to1,
   orthosnap_counts[!rownames(orthosnap_counts) %in% rownames(orthogroup_counts_1to1), ]
@@ -184,9 +188,11 @@ combined_counts[is.na(combined_counts)] <- 0
 
 ```
 
-### deseq2
+## deseq2
 
 ```{r}
+#read metadata: Stage, Replicate, Sample.name, Species, Stage2, Sample2
+#_2 are generalized names across all datasets / across replicates
 metadata <- read.csv(file="/home/cluster_user/Magisterka/metadata2.csv", row.names = 1, header = TRUE, sep = ",") %>%
   filter(Species != "blatella")
 
@@ -194,10 +200,10 @@ metadata <- metadata[colnames(orthogroup_counts), ]
 
 head(metadata)
 dim(metadata)
-
 ```
 
 ```{r}
+#differential expression + deseq2 data formatting
 dds <- DESeqDataSetFromMatrix(countData = combined_counts,
                               colData = metadata,
                               design = ~ Stage2)
@@ -209,7 +215,9 @@ head(results(dds, tidy=TRUE))
 summary(results(dds))
 ```
 
-#### pca
+# patterns visualisation
+
+## pca
 
 ```{r}
 #variance-stabilizing transformation (reduces dependence of variance on mean expression)
@@ -304,7 +312,7 @@ ggsave("/home/cluster_user/Magisterka/plots/PCA1_stage_species.png",
        p, width = 10, height = 8, dpi = 300)
 ```
 
-#### heatmap
+## heatmap
 
 ```{r}
 #annotations
@@ -366,7 +374,7 @@ grid.draw(ph$gtable)
 ggsave("/home/cluster_user/Magisterka/plots/pheatmap1_all_samples.png", ph, width = 11, height = 8)
 ```
 
-#### cluster
+## cluster
 
 ```{r}
 #heatmap of differential expression between stages
@@ -434,7 +442,7 @@ ph <- pheatmap(mat,
 dev.off()
 ```
 
-#### umap
+## umap
 
 ```{r}
 #Uniform Manifold Approximation and Projection
@@ -514,9 +522,9 @@ ggsave("/home/cluster_user/Magisterka/plots/UMAP1_stage_species.png",
 
 ```
 
-### remove species effect
+# remove species effect
 
-#### pca 2
+## pca 2
 
 ```{r}
 # VST
@@ -598,7 +606,7 @@ ggsave("/home/cluster_user/Magisterka/plots/PCA1_stage.png",
 
 ```
 
-#### heatmap 2
+## heatmap 2
 
 ```{r}
 #annotations
@@ -651,7 +659,7 @@ grid.draw(ph$gtable)
 ggsave("/home/cluster_user/Magisterka/plots/heatmap1_stage.png", ph, width = 12, height = 8)
 ```
 
-#### umap 2
+## umap 2
 
 ```{r}
 vst <- varianceStabilizingTransformation(dds, blind = FALSE)
