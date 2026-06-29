@@ -1,10 +1,13 @@
 ---
-title: "download_1"
-output:
-  html_document: default
-  pdf_document: default
-  word_document: default
-date: "2025-02-07"
+title: "1. RNA-seq libraries download"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc_float: true
+    toc-depth: 6
+editor: visual
+author: "Weronika Oprzędek"
 ---
 
 ```{r setup, include=TRUE}
@@ -19,9 +22,9 @@ Locusta, Harmonia, Plutella, Drosophila (set I)
 
 <https://www.ncbi.nlm.nih.gov/Traces/study/?acc=SRP438365&o=biosample_s%3Aa%253Bacc_s%3Bacc_s%3Aa>
 
-----
+------------------------------------------------------------------------
 
-[https://www.cell.com/iscience/fulltext/S2589-0042(18)30072-5#fig1](https://www.cell.com/iscience/fulltext/S2589-0042(18)30072-5#fig1)
+<https://www.cell.com/iscience/fulltext/S2589-0042(18)30072-5#fig1>
 
 Blattella ssr -\> <https://www.ncbi.nlm.nih.gov/Traces/study/?acc=PRJNA389591&o=acc_s%3Aa>
 
@@ -67,7 +70,7 @@ for bam in locusta_mapped/*.bam; do
 done > flagstat_all.txt
 ```
 
-MAPPING
+example mapping:
 
 56358973 + 0 in total (QC-passed reads + QC-failed reads)
 
@@ -101,9 +104,13 @@ MAPPING
 
 283150 + 0 with mate mapped to a different chr (mapQ\>=5)
 
+------------------------------------------------------------------------
+
 the counts didnt assign any reads -\> the files (bam and gff3) dont match each other in scaffolds names -\> changed now around 10-20% assigned -\> in gff3 there arent all scaffolds that are in bam
 
 added -O and -M cause there's a lot of multimapping and some multi-overlapping -\> 15-50%
+
+------------------------------------------------------------------------
 
 trying mapping with the other genome files - <http://v2.insect-genome.com/Organism/509>:
 
@@ -143,7 +150,7 @@ samtools flagstat locusta_mapped2/SRR24633462.bam
 
 -- there's more assigned alignments (50%) but worse mapping?
 
-which to choose?: the first one
+which to choose?: the first genome
 
 ## Harmonia axyridis
 
@@ -160,6 +167,8 @@ mkdir harmonia_index_hisat
 
 hisat2-build Harmonia_axyridis.genome.fa harmonia_index_hisat/harmonia_index
 ```
+
+example mapping:
 
 samtools flagstat harmonia_mapped/SRR24633544.bam
 
